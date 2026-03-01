@@ -2,6 +2,7 @@ services:
   - type: web
     name: conference-agent-api
     runtime: python
+    pythonVersion: "3.11.11"
     buildCommand: pip install -e . && mkdir -p data
     startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
     envVars:
