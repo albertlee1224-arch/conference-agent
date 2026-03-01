@@ -17,7 +17,10 @@ class Settings(BaseSettings):
     # 서버
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-    cors_origins: list[str] = ["http://localhost:8501"]
+    cors_origins: list[str] = [
+        "http://localhost:8501",
+        "https://conference-agent.streamlit.app",
+    ]
 
     # 에이전트
     max_agent_turns: int = 30

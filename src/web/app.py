@@ -14,7 +14,17 @@ import streamlit as st
 # === 설정 ===
 
 import os
-API_BASE = os.environ.get("API_BASE_URL", "http://localhost:8000/api")
+
+def _get_api_base() -> str:
+    """환경변수 또는 Streamlit secrets에서 API URL 가져오기."""
+    if os.environ.get("API_BASE_URL"):
+        return os.environ["API_BASE_URL"]
+    try:
+        return st.secrets["API_BASE_URL"]
+    except (KeyError, FileNotFoundError):
+        return "http://localhost:8000/api"
+
+API_BASE = _get_api_base()
 REFRESH_INTERVAL = 60  # 자동 새로고침 간격 (초)
 
 st.set_page_config(
