@@ -1,0 +1,72 @@
+[
+  {
+    "name": "NeurIPS",
+    "year": 2025,
+    "url": "https://neurips.cc",
+    "program_url": "https://neurips.cc/virtual/2025/events/workshop",
+    "focus": "Machine Learning, AI Research"
+  },
+  {
+    "name": "ICML",
+    "year": 2025,
+    "url": "https://icml.cc",
+    "program_url": "https://icml.cc/virtual/2025",
+    "focus": "Machine Learning Theory and Applications"
+  },
+  {
+    "name": "ICLR",
+    "year": 2026,
+    "url": "https://iclr.cc",
+    "program_url": "https://iclr.cc/virtual/2026",
+    "focus": "Representation Learning, Deep Learning"
+  },
+  {
+    "name": "Google I/O",
+    "year": 2025,
+    "url": "https://io.google",
+    "program_url": "https://io.google/2025/program",
+    "focus": "Google AI Products, Gemini, Android"
+  },
+  {
+    "name": "AWS re:Invent",
+    "year": 2025,
+    "url": "https://reinvent.awsevents.com",
+    "program_url": "https://reinvent.awsevents.com/learn/sessions",
+    "focus": "Cloud, AI/ML Infrastructure, Enterprise"
+  },
+  {
+    "name": "CES",
+    "year": 2026,
+    "url": "https://www.ces.tech",
+    "program_url": "https://www.ces.tech/conference/sessions",
+    "focus": "Consumer Electronics, AI Hardware, Edge AI"
+  },
+  {
+    "name": "Web Summit",
+    "year": 2025,
+    "url": "https://websummit.com",
+    "program_url": "https://websummit.com/schedule",
+    "focus": "Startups, Tech Innovation, AI Applications"
+  },
+  {
+    "name": "TechCrunch Disrupt",
+    "year": 2025,
+    "url": "https://techcrunch.com/events/disrupt",
+    "program_url": "https://techcrunch.com/events/disrupt/agenda",
+    "focus": "Startups, VC, AI Innovation"
+  },
+  {
+    "name": "Microsoft Build",
+    "year": 2025,
+    "url": "https://build.microsoft.com",
+    "program_url": "https://build.microsoft.com/sessions",
+    "focus": "Azure AI, Copilot, Enterprise AI"
+  },
+  {
+    "name": "NVIDIA GTC",
+    "year": 2026,
+    "url": "https://www.nvidia.com/gtc",
+    "program_url": "https://www.nvidia.com/gtc/sessions",
+    "focus": "GPU, AI Infrastructure, Generative AI"
+  }
+]
