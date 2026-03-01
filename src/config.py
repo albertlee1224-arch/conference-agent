@@ -20,16 +20,18 @@ class Settings(BaseSettings):
     cors_origins: list[str] = [
         "http://localhost:8501",
         "https://conference-agent.streamlit.app",
+        "https://conference-agent-78qcjalyjenzozi7sw6ups.streamlit.app",
     ]
 
     # 에이전트
     max_agent_turns: int = 30
     default_speaker_count: int = 10
 
-    # 일일 스캔 스케줄러
+    # 스캔 스케줄러
     daily_scan_enabled: bool = True
-    daily_scan_hour: int = 9   # KST 기준 실행 시각 (0-23)
+    daily_scan_hour: int = 9   # KST 기준 메인 스캔 시각 (0-23)
     daily_scan_minute: int = 0
+    scan_interval_hours: int = 6  # 주기적 스캔 간격 (시간)
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

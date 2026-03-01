@@ -27,16 +27,15 @@ async def scheduled_daily_scan() -> None:
     await db.execute("PRAGMA foreign_keys=ON")
 
     try:
-        # 중복 실행 방지: 오늘 이미 실행 중인 daily_scan 세션이 있으면 스킵
+        # 중복 실행 방지: 현재 실행 중인 daily_scan 세션이 있으면 스킵
         cursor = await db.execute(
             """SELECT id FROM research_sessions
                WHERE session_type = 'daily_scan'
-               AND status = 'running'
-               AND date(created_at) = date('now')""",
+               AND status = 'running'""",
         )
         running = await cursor.fetchone()
         if running:
-            logger.info("이미 실행 중인 일일 스캔 세션이 있습니다. 스킵합니다.")
+            logger.info("이미 실행 중인 스캔 세션이 있습니다. 스킵합니다.")
             return
 
         session_id = await queries.create_session(
@@ -65,6 +64,15 @@ def start_scheduler() -> None:
         logger.info("일일 스캔 비활성화됨 (DAILY_SCAN_ENABLED=false)")
         return
 
+    # 6시간마다 자동 스캔 (00, 06, 12, 18시)
+    scheduler.add_job(
+        scheduled_daily_scan,
+        "interval",
+        hours=settings.scan_interval_hours,
+        id="periodic_scan",
+        replace_existing=True,
+    )
+    # 기존 일일 스캔도 유지 (메인 스캔 시각)
     scheduler.add_job(
         scheduled_daily_scan,
         "cron",
@@ -76,7 +84,7 @@ def start_scheduler() -> None:
     )
     scheduler.start()
     logger.info(
-        f"일일 스캔 스케줄러 시작 — "
+        f"스케줄러 시작 — {settings.scan_interval_hours}시간 간격 + "
         f"매일 {settings.daily_scan_hour:02d}:{settings.daily_scan_minute:02d} KST"
     )
 

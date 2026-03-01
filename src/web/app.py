@@ -11,6 +11,7 @@ from datetime import date, timedelta
 import httpx
 import pandas as pd
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 
 # === 설정 ===
@@ -32,6 +33,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# 60초마다 자동 새로고침 — 에이전트가 새 데이터를 추가하면 자동 반영
+st_autorefresh(interval=60_000, limit=None, key="auto_refresh")
 
 
 # === 프로페셔널 CSS ===

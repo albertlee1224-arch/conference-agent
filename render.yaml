@@ -11,9 +11,11 @@ services:
       - key: DATABASE_PATH
         value: data/conference.db
       - key: CORS_ORIGINS
-        value: '["https://conference-agent.streamlit.app"]'
+        value: '["https://conference-agent.streamlit.app","https://conference-agent-78qcjalyjenzozi7sw6ups.streamlit.app"]'
       - key: DAILY_SCAN_ENABLED
         value: "true"
       - key: DAILY_SCAN_HOUR
         value: "9"
+      - key: SCAN_INTERVAL_HOURS
+        value: "6"
     plan: free
