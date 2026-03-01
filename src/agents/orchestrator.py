@@ -278,11 +278,19 @@ def _build_agents(
 
     # 일일 스캔 에이전트 (컨텍스트가 있을 때만 추가)
     if daily_scan_context:
+        # .format() 대신 .replace()로 치환 — 프롬프트 내 JSON 중괄호와 충돌 방지
+        trend_prompt = DAILY_TREND_SCAN_PROMPT.replace(
+            "{existing_trends}", daily_scan_context.get("trends", "없음"),
+        )
+        speaker_prompt = DAILY_SPEAKER_SCAN_PROMPT.replace(
+            "{existing_trends}", daily_scan_context.get("trends", "없음"),
+        ).replace(
+            "{existing_speakers}", daily_scan_context.get("speakers", "없음"),
+        )
+
         agents["trend-scanner"] = AgentDefinition(
             description="최신 AI 트렌드를 능동적으로 탐지하는 에이전트",
-            prompt=DAILY_TREND_SCAN_PROMPT.format(
-                existing_trends=daily_scan_context.get("trends", "없음"),
-            ),
+            prompt=trend_prompt,
             tools=[
                 "WebSearch",
                 "WebFetch",
@@ -292,10 +300,7 @@ def _build_agents(
         )
         agents["speaker-scanner"] = AgentDefinition(
             description="새로운 해외 연사 후보를 능동적으로 발굴하는 에이전트",
-            prompt=DAILY_SPEAKER_SCAN_PROMPT.format(
-                existing_trends=daily_scan_context.get("trends", "없음"),
-                existing_speakers=daily_scan_context.get("speakers", "없음"),
-            ),
+            prompt=speaker_prompt,
             tools=[
                 "WebSearch",
                 "WebFetch",
