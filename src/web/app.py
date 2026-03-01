@@ -1,23 +1,21 @@
-"""AI SUMMIT 2026 — Professional Intelligence Dashboard.
+"""AI SUMMIT 2026 — Conference Planning Intelligence.
 
-실시간 AI 트렌드/연사 인텔리전스 대시보드.
-딥리서치 기반 트렌드 분석, 연사 후보 제안, 기획자를 위한 뉴스 큐레이션.
+Professional dashboard inspired by Luma, Exploding Topics, Feedly, Sessionboard.
+3-tab structure: Today / Research / Plan
 """
 
 import json
 import os
-from datetime import date, timedelta
+from datetime import date
 
 import httpx
-import pandas as pd
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 
-# === 설정 ===
+# === Config ===
 
 def _get_api_base() -> str:
-    """환경변수 또는 Streamlit secrets에서 API URL 가져오기."""
     if os.environ.get("API_BASE_URL"):
         return os.environ["API_BASE_URL"]
     try:
@@ -28,261 +26,390 @@ def _get_api_base() -> str:
 API_BASE = _get_api_base()
 
 st.set_page_config(
-    page_title="AI SUMMIT 2026 — Intelligence Hub",
-    page_icon="🔮",
+    page_title="AI SUMMIT 2026",
+    page_icon="./",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# 60초마다 자동 새로고침 — 에이전트가 새 데이터를 추가하면 자동 반영
 st_autorefresh(interval=60_000, limit=None, key="auto_refresh")
 
 
-# === 프로페셔널 CSS ===
+# ============================================================
+# CSS — Professional White Theme
+# Inspired by: Luma (spacing/elegance), Exploding Topics (trend viz),
+# Sessionboard (speaker pipeline), Feedly (intel dashboard)
+# ============================================================
+
+TRACK_COLORS = ["#2563eb", "#7c3aed", "#059669", "#d97706"]
 
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
-/* 전역 */
-.stApp { background: #0a0a0f; font-family: 'Inter', sans-serif; }
-[data-testid="stSidebar"] { background: #0d0d14; border-right: 1px solid #1a1a2e; }
-.stMarkdown { color: #c9d1d9; }
+/* ── Reset ── */
+.stApp {
+    background: #f8f9fa;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #1a1a1a;
+}
+[data-testid="stSidebar"] { background: #fff; border-right: 1px solid #eee; }
+.stMarkdown { color: #374151; }
+#MainMenu, header, footer { visibility: hidden; }
 
-/* 메인 헤더 */
-.main-header {
-    background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #1a1a2e 100%);
-    border: 1px solid #21262d;
-    border-radius: 16px;
-    padding: 2rem 2.5rem;
-    margin-bottom: 1.5rem;
-    position: relative;
-    overflow: hidden;
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0;
+    background: #fff;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 0 2rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
 }
-.main-header::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, #e94560, #667eea, #00d2ff);
+.stTabs [data-baseweb="tab"] {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: #9ca3af;
+    padding: 0.9rem 1.8rem;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    letter-spacing: -0.01em;
 }
-.main-header h1 {
-    font-size: 2rem;
-    font-weight: 900;
-    background: linear-gradient(135deg, #fff 0%, #a0aec0 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+.stTabs [aria-selected="true"] {
+    color: #111827 !important;
+    border-bottom: 2px solid #111827 !important;
+    background: transparent !important;
+}
+
+/* ── Page Header ── */
+.page-header {
+    background: #fff;
+    padding: 2rem 2.5rem 1.2rem 2.5rem;
+    margin: -1rem -1rem 0 -1rem;
+    border-bottom: 1px solid #e5e7eb;
+}
+.page-header h1 {
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: #111827;
     margin: 0;
     letter-spacing: -0.5px;
 }
-.main-header .tagline {
-    color: #8b949e;
-    font-size: 0.9rem;
-    margin-top: 0.3rem;
+.page-header .sub {
+    color: #9ca3af;
+    font-size: 0.8rem;
+    margin-top: 0.15rem;
     font-weight: 400;
 }
-.live-indicator {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: rgba(233,69,96,0.15);
-    color: #e94560;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 1px;
-    margin-left: 12px;
-    vertical-align: middle;
-}
-.live-dot {
-    width: 8px; height: 8px;
-    background: #e94560;
-    border-radius: 50%;
-    animation: livepulse 1.5s ease-in-out infinite;
-}
-@keyframes livepulse {
-    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(233,69,96,0.4); }
-    50% { opacity: 0.6; box-shadow: 0 0 0 6px rgba(233,69,96,0); }
-}
 
-/* 섹션 헤더 */
-.section-header {
+/* ── KPI Strip ── */
+.kpi-strip {
     display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 2rem 0 1rem 0;
-    padding-bottom: 0.8rem;
-    border-bottom: 1px solid #21262d;
+    gap: 1rem;
+    margin: 1.5rem 0;
 }
-.section-header h2 {
-    font-size: 1.3rem;
-    font-weight: 700;
-    color: #e6edf3;
-    margin: 0;
-}
-.section-header .count-badge {
-    background: #21262d;
-    color: #8b949e;
-    padding: 2px 10px;
+.kpi-item {
+    flex: 1;
+    background: #fff;
+    border: 1px solid #e5e7eb;
     border-radius: 12px;
-    font-size: 0.75rem;
-    font-weight: 600;
-}
-
-/* 인텔리전스 카드 */
-.intel-card {
-    background: #0d1117;
-    border: 1px solid #21262d;
-    border-radius: 12px;
-    padding: 1.5rem;
-    margin-bottom: 1rem;
-    transition: all 0.2s ease;
-}
-.intel-card:hover {
-    border-color: #388bfd;
-    box-shadow: 0 0 20px rgba(56,139,253,0.1);
-}
-.intel-card.urgent {
-    border-left: 3px solid #e94560;
-}
-.intel-card.trend {
-    border-left: 3px solid #00d2ff;
-}
-.intel-card.speaker {
-    border-left: 3px solid #667eea;
-}
-.intel-card.news {
-    border-left: 3px solid #ffa657;
-}
-
-/* 태그 */
-.tag {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 6px;
-    font-size: 0.65rem;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    margin-right: 4px;
-}
-.tag-trend { background: rgba(0,210,255,0.15); color: #00d2ff; }
-.tag-speaker { background: rgba(102,126,234,0.15); color: #667eea; }
-.tag-urgent { background: rgba(233,69,96,0.15); color: #e94560; }
-.tag-new { background: rgba(0,230,118,0.15); color: #00e676; }
-.tag-auto { background: rgba(255,166,87,0.15); color: #ffa657; }
-.tag-news { background: rgba(255,166,87,0.15); color: #ffa657; }
-
-/* 스코어 시스템 */
-.score-circle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 56px; height: 56px;
-    border-radius: 50%;
-    font-weight: 800;
-    font-size: 1rem;
-}
-.score-bar-pro {
-    height: 4px;
-    background: #161b22;
-    border-radius: 2px;
-    overflow: hidden;
-    margin: 3px 0;
-}
-.score-bar-fill-pro {
-    height: 100%;
-    border-radius: 2px;
-}
-
-/* KPI 카드 */
-.kpi-card {
-    background: #0d1117;
-    border: 1px solid #21262d;
-    border-radius: 12px;
-    padding: 1.2rem;
+    padding: 1rem;
     text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
-.kpi-value {
-    font-size: 2rem;
+.kpi-num {
+    font-size: 1.8rem;
     font-weight: 800;
+    color: #111827;
     line-height: 1;
 }
-.kpi-label {
-    font-size: 0.7rem;
-    color: #8b949e;
+.kpi-lbl {
+    font-size: 0.65rem;
+    color: #9ca3af;
     text-transform: uppercase;
-    letter-spacing: 1px;
+    letter-spacing: 0.5px;
     margin-top: 4px;
-}
-.kpi-delta {
-    font-size: 0.75rem;
-    margin-top: 4px;
+    font-weight: 500;
 }
 
-/* 뉴스 피드 */
-.news-item {
-    background: #0d1117;
-    border: 1px solid #21262d;
-    border-radius: 10px;
-    padding: 1rem 1.2rem;
-    margin-bottom: 0.6rem;
-    transition: border-color 0.2s;
-}
-.news-item:hover { border-color: #ffa657; }
-.news-title {
-    font-weight: 600;
-    color: #e6edf3;
-    font-size: 0.95rem;
-    margin-bottom: 0.3rem;
-}
-.news-meta {
+/* ── Section ── */
+.sec-title {
     font-size: 0.75rem;
-    color: #8b949e;
+    font-weight: 700;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin: 2rem 0 1rem 0;
 }
-.news-summary {
-    font-size: 0.85rem;
-    color: #b1bac4;
-    margin-top: 0.4rem;
+.sec-count {
+    display: inline-block;
+    background: #f3f4f6;
+    color: #6b7280;
+    padding: 1px 7px;
+    border-radius: 8px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    margin-left: 6px;
+}
+
+/* ── Hero Card (Top Trends/Speakers) ── */
+.hero-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.02);
+    transition: box-shadow 0.2s ease, transform 0.15s ease;
+    height: 100%;
+}
+.hero-card:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    transform: translateY(-1px);
+}
+.hero-rank {
+    font-size: 0.6rem;
+    font-weight: 800;
+    color: #d1d5db;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 0.6rem;
+}
+.hero-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1.3;
+    margin-bottom: 0.4rem;
+}
+.hero-desc {
+    font-size: 0.82rem;
+    color: #6b7280;
     line-height: 1.5;
 }
 
-/* 사이드바 */
-.sidebar-section {
-    background: #0d1117;
-    border: 1px solid #1a1a2e;
-    border-radius: 10px;
-    padding: 1rem;
-    margin-bottom: 0.8rem;
+/* ── Relevance Bar (Exploding Topics style) ── */
+.rel-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 0.8rem;
 }
-.sidebar-kpi {
-    text-align: center;
-    padding: 0.5rem 0;
+.rel-bar-track {
+    flex: 1;
+    height: 4px;
+    background: #f3f4f6;
+    border-radius: 2px;
+    overflow: hidden;
 }
-.sidebar-kpi .value {
-    font-size: 1.5rem;
-    font-weight: 800;
+.rel-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s ease;
 }
-.sidebar-kpi .label {
-    font-size: 0.65rem;
-    color: #8b949e;
+.rel-bar-val {
+    font-size: 0.75rem;
+    font-weight: 700;
+    min-width: 36px;
+    text-align: right;
+}
+
+/* ── Briefing Card ── */
+.brief-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 1rem 1.3rem;
+    margin-bottom: 0.6rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    transition: box-shadow 0.15s ease;
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+}
+.brief-card:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.brief-left {
+    flex: 1;
+}
+.brief-title {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: #111827;
+    line-height: 1.35;
+}
+.brief-meta {
+    font-size: 0.78rem;
+    color: #9ca3af;
+    margin-top: 2px;
+}
+.brief-desc {
+    font-size: 0.82rem;
+    color: #6b7280;
+    margin-top: 4px;
+    line-height: 1.5;
+}
+.brief-right {
+    min-width: 44px;
+    text-align: right;
+    padding-top: 2px;
+}
+
+/* ── Tag System ── */
+.t {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 0.6rem;
+    font-weight: 600;
+    letter-spacing: 0.3px;
     text-transform: uppercase;
-    letter-spacing: 1px;
+    margin-right: 3px;
+    vertical-align: middle;
+}
+.t-blue { background: #eff6ff; color: #2563eb; }
+.t-purple { background: #f5f3ff; color: #7c3aed; }
+.t-green { background: #ecfdf5; color: #059669; }
+.t-amber { background: #fffbeb; color: #d97706; }
+.t-red { background: #fef2f2; color: #dc2626; }
+.t-gray { background: #f3f4f6; color: #6b7280; }
+.t-sky { background: #f0f9ff; color: #0284c7; }
+
+/* ── Speaker Card ── */
+.sp-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    padding: 1.3rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    transition: box-shadow 0.2s ease;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+.sp-card:hover {
+    box-shadow: 0 4px 14px rgba(0,0,0,0.07);
+}
+.sp-name {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #111827;
+}
+.sp-org {
+    font-size: 0.78rem;
+    color: #6b7280;
+    margin-top: 1px;
+}
+.sp-tags {
+    margin-top: 8px;
+}
+.sp-expertise {
+    font-size: 0.72rem;
+    color: #9ca3af;
+    margin-top: 8px;
+    line-height: 1.4;
+    flex: 1;
 }
 
-/* 테이블 커스텀 */
-.dataframe { font-size: 0.85rem !important; }
+/* ── Pipeline (Sessionboard style) ── */
+.pipeline {
+    display: flex;
+    gap: 2px;
+    margin-top: 10px;
+}
+.pipe-step {
+    flex: 1;
+    height: 3px;
+    background: #f3f4f6;
+    border-radius: 2px;
+}
+.pipe-step.active {
+    background: #2563eb;
+}
+.pipe-step.done {
+    background: #059669;
+}
+.pipe-label {
+    font-size: 0.6rem;
+    color: #9ca3af;
+    margin-top: 3px;
+}
 
-/* 숨김 요소 */
-#MainMenu { visibility: hidden; }
-header { visibility: hidden; }
-footer { visibility: hidden; }
+/* ── Track Card ── */
+.trk-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    padding: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    position: relative;
+    overflow: hidden;
+}
+.trk-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 4px; height: 100%;
+}
+.trk-name {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #111827;
+    margin-bottom: 4px;
+}
+.trk-desc {
+    font-size: 0.82rem;
+    color: #6b7280;
+    line-height: 1.5;
+    margin-bottom: 8px;
+}
+.trk-meta {
+    font-size: 0.72rem;
+    color: #9ca3af;
+}
+
+/* ── Discussion ── */
+.disc-msg {
+    background: #f9fafb;
+    border: 1px solid #f3f4f6;
+    border-radius: 10px;
+    padding: 0.8rem 1rem;
+    margin-bottom: 0.4rem;
+}
+.disc-agent {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #6b7280;
+    margin-bottom: 3px;
+}
+.disc-text {
+    font-size: 0.82rem;
+    color: #374151;
+    line-height: 1.6;
+}
+
+/* ── Empty State ── */
+.empty {
+    text-align: center;
+    padding: 3rem;
+    color: #d1d5db;
+    font-size: 0.85rem;
+}
+
+/* ── Buttons ── */
+.stButton > button {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    border-radius: 8px;
+    font-size: 0.82rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
 
-# === API 헬퍼 ===
+# ============================================================
+# API Helpers
+# ============================================================
 
 def api_get(path: str, params: dict | None = None) -> dict | list:
     try:
@@ -291,7 +418,6 @@ def api_get(path: str, params: dict | None = None) -> dict | list:
         return r.json()
     except httpx.HTTPError:
         return []
-
 
 def api_post(path: str, data: dict) -> dict:
     try:
@@ -302,7 +428,6 @@ def api_post(path: str, data: dict) -> dict:
         st.error(f"API Error: {e}")
         return {}
 
-
 def api_patch(path: str, data: dict) -> dict:
     try:
         r = httpx.patch(f"{API_BASE}{path}", json=data, timeout=10)
@@ -311,7 +436,6 @@ def api_patch(path: str, data: dict) -> dict:
     except httpx.HTTPError as e:
         st.error(f"API Error: {e}")
         return {}
-
 
 def api_delete(path: str) -> dict:
     try:
@@ -322,851 +446,579 @@ def api_delete(path: str) -> dict:
         return {}
 
 
-def score_color(score: float) -> str:
-    if score >= 0.8:
-        return "#00e676"
-    elif score >= 0.6:
-        return "#ffa657"
-    elif score >= 0.4:
-        return "#f0883e"
-    return "#f85149"
+def _sc(score: float) -> str:
+    """Score color hex."""
+    if score >= 0.85: return "#059669"
+    if score >= 0.7: return "#2563eb"
+    if score >= 0.5: return "#d97706"
+    return "#dc2626"
 
 
-def score_bg(score: float) -> str:
-    if score >= 0.8:
-        return "rgba(0,230,118,0.12)"
-    elif score >= 0.6:
-        return "rgba(255,166,87,0.12)"
-    elif score >= 0.4:
-        return "rgba(240,136,62,0.12)"
-    return "rgba(248,81,73,0.12)"
+def _pipe_status(status: str) -> int:
+    """Pipeline step index: candidate=1, shortlisted=2, confirmed=3."""
+    return {"candidate": 1, "shortlisted": 2, "confirmed": 3, "rejected": 0}.get(status, 0)
 
 
-def parse_detail(raw: str | None) -> dict:
-    if not raw:
-        return {}
-    try:
-        return json.loads(raw) if isinstance(raw, str) else raw
-    except (json.JSONDecodeError, TypeError):
-        return {}
+PERSONA = {
+    "ai-tech-expert": ("AI Tech Expert", "t-blue"),
+    "enterprise-attendee": ("Enterprise", "t-purple"),
+    "operations-manager": ("Ops Manager", "t-amber"),
+    "general-attendee": ("General", "t-green"),
+}
+
+CAT_COLORS = {
+    "GenAI": ("t-purple", "#7c3aed"),
+    "Enterprise AI": ("t-blue", "#2563eb"),
+    "AI Infra": ("t-sky", "#0284c7"),
+    "AI Policy": ("t-red", "#dc2626"),
+    "Industry AI": ("t-amber", "#d97706"),
+    "AI Research": ("t-green", "#059669"),
+}
 
 
-def parse_urls(raw: str | None) -> list:
-    if not raw:
-        return []
-    try:
-        result = json.loads(raw) if isinstance(raw, str) else raw
-        return result if isinstance(result, list) else []
-    except (json.JSONDecodeError, TypeError):
-        return []
-
-
-# === 데이터 로딩 ===
+# ============================================================
+# Data Loading
+# ============================================================
 
 suggestions = api_get("/suggestions", {"limit": 100})
 trends = api_get("/trends")
 speakers = api_get("/speakers", {"limit": 100, "sort": "overall_score"})
-stats = api_get("/suggestions/stats")
 sessions = api_get("/research/sessions")
+tracks = api_get("/tracks")
 feedback_list = api_get("/feedback/history")
 
-pending = [s for s in suggestions if s.get("status") == "pending_review"] if isinstance(suggestions, list) else []
-approved = [s for s in suggestions if s.get("status") == "approved"] if isinstance(suggestions, list) else []
-recent_suggestions = sorted(suggestions, key=lambda x: x.get("created_at", ""), reverse=True)[:20] if isinstance(suggestions, list) else []
+for name in ("suggestions", "trends", "speakers", "sessions", "tracks", "feedback_list"):
+    if not isinstance(locals()[name], list):
+        locals()[name] = []
+
+pending = [s for s in suggestions if s.get("status") == "pending_review"]
+sorted_trends = sorted(trends, key=lambda t: t.get("relevance_score") or 0, reverse=True)
+sorted_speakers = sorted(speakers, key=lambda s: s.get("overall_score") or 0, reverse=True)
 
 
-# ═══════════════════════════════════════════════════
-# 사이드바 — 커맨드 센터
-# ═══════════════════════════════════════════════════
+# ============================================================
+# Header
+# ============================================================
 
-with st.sidebar:
-    st.markdown("""
-    <div style="text-align:center;padding:1rem 0;">
-        <div style="font-size:1.3rem;font-weight:900;
-             background:linear-gradient(135deg,#fff,#667eea);
-             -webkit-background-clip:text;-webkit-text-fill-color:transparent;">
-            AI SUMMIT 2026
-        </div>
-        <div style="font-size:0.7rem;color:#8b949e;letter-spacing:2px;
-             text-transform:uppercase;margin-top:2px;">
-            Intelligence Hub
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # 시스템 상태
-    health = api_get("/health")
-    is_online = isinstance(health, dict) and health.get("status") == "ok"
-    running_sessions = [s for s in sessions if s.get("status") == "running"] if isinstance(sessions, list) else []
-
-    status_color = "#00e676" if is_online else "#f85149"
-    status_text = "SYSTEM ONLINE" if is_online else "OFFLINE"
-    st.markdown(f"""
-    <div class="sidebar-section" style="border-color:{status_color}22;">
-        <div style="display:flex;align-items:center;gap:8px;justify-content:center;">
-            <div style="width:8px;height:8px;border-radius:50%;background:{status_color};"></div>
-            <span style="color:{status_color};font-size:0.75rem;font-weight:700;letter-spacing:1px;">{status_text}</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # KPI 그리드
-    n_trends = len(trends) if isinstance(trends, list) else 0
-    n_speakers = len(speakers) if isinstance(speakers, list) else 0
-    n_pending = len(pending)
-
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.markdown(f'<div class="sidebar-kpi"><div class="value" style="color:#00d2ff;">{n_trends}</div><div class="label">Trends</div></div>', unsafe_allow_html=True)
-    with c2:
-        st.markdown(f'<div class="sidebar-kpi"><div class="value" style="color:#667eea;">{n_speakers}</div><div class="label">Speakers</div></div>', unsafe_allow_html=True)
-    with c3:
-        st.markdown(f'<div class="sidebar-kpi"><div class="value" style="color:#e94560;">{n_pending}</div><div class="label">Pending</div></div>', unsafe_allow_html=True)
-
-    # 실행 중인 에이전트
-    if running_sessions:
-        st.markdown(f"""
-        <div class="sidebar-section" style="border-color:#00d2ff33;">
-            <div style="display:flex;align-items:center;gap:6px;justify-content:center;">
-                <div class="live-dot"></div>
-                <span style="color:#00d2ff;font-size:0.75rem;font-weight:600;">
-                    {len(running_sessions)} Agent(s) Running
-                </span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.divider()
-
-    # 액션 버튼
-    st.markdown("##### ACTIONS")
-
-    if st.button("🔍 Deep Research Scan", use_container_width=True, type="primary"):
-        result = api_post("/suggestions/scan", {})
-        if result.get("session_id"):
-            st.success(f"Scan initiated (#{result['session_id']})")
-            st.rerun()
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        if st.button("📊 Trend Research", use_container_width=True):
-            st.session_state["show_trend_input"] = True
-    with col_b:
-        if st.button("🎤 Speaker Search", use_container_width=True):
-            st.session_state["show_speaker_input"] = True
-
-    # 수동 리서치 입력
-    if st.session_state.get("show_trend_input"):
-        with st.container():
-            q = st.text_input("Research Keywords", placeholder="AI Agent, Multimodal AI, Edge AI", key="mq")
-            if st.button("Start Research", key="run_t", use_container_width=True):
-                if q:
-                    r = api_post("/research/trends", {"query": q})
-                    if r.get("session_id"):
-                        st.success(f"Research started (#{r['session_id']})")
-                        st.session_state["show_trend_input"] = False
-                        st.rerun()
-
-    if st.session_state.get("show_speaker_input"):
-        with st.container():
-            topic = st.text_input("Topic / Domain", placeholder="AI Agent", key="ms_topic")
-            tier = st.selectbox("Tier", ["tier3_track", "tier1_keynote"], key="ms_tier")
-            prefs = st.text_input("Preferences (optional)", key="ms_prefs")
-            if st.button("Find Speakers", key="run_s", use_container_width=True):
-                if topic:
-                    r = api_post("/research/speakers", {
-                        "topic": topic, "tier": tier,
-                        "preferences": prefs or None,
-                    })
-                    if r.get("session_id"):
-                        st.success(f"Search started (#{r['session_id']})")
-                        st.session_state["show_speaker_input"] = False
-                        st.rerun()
-
-    st.divider()
-
-    # 피드백
-    with st.expander("💬 Submit Feedback"):
-        fb = st.text_area("Content", height=80, key="fb_in",
-                          placeholder="Need more healthcare AI speakers...")
-        fb_type = st.selectbox("Type",
-                               ["general", "direction", "speaker", "trend", "track"],
-                               key="fb_t")
-        if st.button("Submit", key="fb_sub", use_container_width=True):
-            if fb:
-                r = api_post("/feedback", {"content": fb, "feedback_type": fb_type})
-                if r.get("id"):
-                    st.success("Feedback submitted")
-
-    st.divider()
-    st.caption("v0.3.0 — Conference Intelligence Platform")
-
-
-# ═══════════════════════════════════════════════════
-# 메인 영역
-# ═══════════════════════════════════════════════════
-
-# 헤더
-st.markdown("""
-<div class="main-header">
-    <h1>AI SUMMIT AND EXPO 2026
-        <span class="live-indicator"><span class="live-dot"></span>LIVE INTELLIGENCE</span>
-    </h1>
-    <div class="tagline">
-        Deep Research 기반 실시간 AI 트렌드 분석 · 연사 후보 발굴 · 기획자 인텔리전스
-    </div>
+st.markdown(f"""
+<div class="page-header">
+    <h1>AI SUMMIT AND EXPO 2026</h1>
+    <div class="sub">{date.today().strftime('%B %d, %Y')} &middot; Conference Planning Intelligence</div>
 </div>
 """, unsafe_allow_html=True)
 
+st.markdown("")
 
-# ═══════════════════════════════════════════════════
-# TAB 구조: Overview | Trends | Speakers | News | Activity
-# ═══════════════════════════════════════════════════
+# ============================================================
+# 3-Tab Structure
+# ============================================================
 
-tab_overview, tab_trends, tab_speakers, tab_news, tab_activity = st.tabs([
-    "📋 Overview", "📊 Trend Intelligence", "🎤 Speaker Intelligence",
-    "📰 News & Curation", "🤖 Agent Activity",
-])
+tab_today, tab_research, tab_plan = st.tabs(["Today", "Research", "Plan"])
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 1: OVERVIEW — 핵심 현황 + 검토 대기
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 1: TODAY — Editorial Briefing
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-with tab_overview:
+with tab_today:
 
-    # KPI 대시보드
-    kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+    # ── KPI Strip ──
+    n_t = len(trends)
+    n_s = len(speakers)
+    n_tr = len(tracks)
+    n_p = len(pending)
+    n_done = len([s for s in sessions if s.get("status") == "completed"])
 
-    total_approved = len(approved)
-    total_sessions = len(sessions) if isinstance(sessions, list) else 0
-    completed_sessions = len([s for s in sessions if s.get("status") == "completed"]) if isinstance(sessions, list) else 0
+    c1, c2, c3, c4, c5 = st.columns(5)
+    for col, val, lbl in [
+        (c1, n_t, "Trends"), (c2, n_s, "Speakers"), (c3, n_tr, "Tracks"),
+        (c4, n_p, "Pending"), (c5, n_done, "Sessions"),
+    ]:
+        with col:
+            st.markdown(f'<div class="kpi-item"><div class="kpi-num">{val}</div><div class="kpi-lbl">{lbl}</div></div>', unsafe_allow_html=True)
 
-    with kpi1:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value" style="color:#00d2ff;">{n_trends}</div><div class="kpi-label">Active Trends</div></div>', unsafe_allow_html=True)
-    with kpi2:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value" style="color:#667eea;">{n_speakers}</div><div class="kpi-label">Speaker Candidates</div></div>', unsafe_allow_html=True)
-    with kpi3:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value" style="color:#e94560;">{n_pending}</div><div class="kpi-label">Pending Review</div></div>', unsafe_allow_html=True)
-    with kpi4:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value" style="color:#00e676;">{total_approved}</div><div class="kpi-label">Approved Today</div></div>', unsafe_allow_html=True)
-    with kpi5:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value" style="color:#ffa657;">{completed_sessions}</div><div class="kpi-label">Research Sessions</div></div>', unsafe_allow_html=True)
+    # ── Top Trends (Hero Cards — Flipboard/Exploding Topics style) ──
+    st.markdown(f'<div class="sec-title">Top Trends<span class="sec-count">{n_t}</span></div>', unsafe_allow_html=True)
+
+    if sorted_trends:
+        top3 = sorted_trends[:3]
+        cols = st.columns(3)
+        for i, t in enumerate(top3):
+            score = t.get("relevance_score") or 0
+            cat = t.get("category", "")
+            tag_cls, bar_color = CAT_COLORS.get(cat, ("t-gray", "#6b7280"))
+            sc = _sc(score)
+            with cols[i]:
+                st.markdown(f"""
+                <div class="hero-card">
+                    <div class="hero-rank">#{i+1} Trending</div>
+                    <div style="margin-bottom:6px;"><span class="t {tag_cls}">{cat}</span></div>
+                    <div class="hero-title">{t['keyword']}</div>
+                    <div class="hero-desc">{t.get('description', '')}</div>
+                    <div class="rel-bar-wrap">
+                        <div class="rel-bar-track">
+                            <div class="rel-bar-fill" style="width:{score*100:.0f}%;background:{bar_color};"></div>
+                        </div>
+                        <div class="rel-bar-val" style="color:{sc};">{score:.0%}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+        # Remaining trends as compact list
+        if len(sorted_trends) > 3:
+            for t in sorted_trends[3:10]:
+                score = t.get("relevance_score") or 0
+                cat = t.get("category", "")
+                tag_cls, bar_color = CAT_COLORS.get(cat, ("t-gray", "#6b7280"))
+                sc = _sc(score)
+                st.markdown(f"""
+                <div class="brief-card">
+                    <div class="brief-left">
+                        <span class="t {tag_cls}">{cat}</span>
+                        <span class="brief-title">{t['keyword']}</span>
+                        <div class="brief-desc">{t.get('description', '')[:120]}{'...' if len(t.get('description',''))>120 else ''}</div>
+                    </div>
+                    <div class="brief-right">
+                        <div class="rel-bar-val" style="color:{sc};">{score:.0%}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="empty">No trends yet. Run a research scan to get started.</div>', unsafe_allow_html=True)
 
     st.markdown("")
 
-    # 검토 대기 항목
-    if pending:
-        st.markdown(f"""
-        <div class="section-header">
-            <h2>🔔 Pending Review</h2>
-            <span class="count-badge">{len(pending)} items</span>
-        </div>
-        """, unsafe_allow_html=True)
-        st.caption("AI 에이전트가 딥 리서치를 통해 자동 발굴한 항목입니다. 검토 후 승인/거절하세요.")
+    # ── Top Speakers (Hero Cards) ──
+    st.markdown(f'<div class="sec-title">Top Speakers<span class="sec-count">{n_s}</span></div>', unsafe_allow_html=True)
 
-        for s in pending:
-            detail = parse_detail(s.get("detail_json"))
-            is_trend = s["suggestion_type"] == "trend"
-            score = s.get("relevance_score") or 0
-            sc = score_color(score)
-            card_class = "trend" if is_trend else "speaker"
+    if sorted_speakers:
+        top3_sp = sorted_speakers[:3]
+        cols = st.columns(3)
+        for i, sp in enumerate(top3_sp):
+            score = sp.get("overall_score") or 0
+            tier = sp.get("tier", "")
+            sc = _sc(score)
+            tier_tag = '<span class="t t-amber">Keynote</span>' if tier == "tier1_keynote" else '<span class="t t-sky">Track</span>' if tier == "tier3_track" else ""
+            name_ko = sp.get("name_ko", "")
+            sub_name = f' ({name_ko})' if name_ko else ""
+            exp = sp.get("expertise", "")
+            if len(exp) > 80:
+                exp = exp[:80] + "..."
 
-            col_main, col_score, col_act = st.columns([5, 1, 1])
+            status = sp.get("status", "candidate")
+            pipe = _pipe_status(status)
+            pipe_html = '<div class="pipeline">'
+            for step in range(1, 4):
+                cls = "done" if step < pipe else ("active" if step == pipe else "")
+                pipe_html += f'<div class="pipe-step {cls}"></div>'
+            pipe_html += '</div>'
+            pipe_label = {"candidate": "Candidate", "shortlisted": "Shortlisted", "confirmed": "Confirmed", "rejected": "Rejected"}.get(status, status)
 
-            with col_main:
-                tag_html = f'<span class="tag tag-{"trend" if is_trend else "speaker"}">{"TREND" if is_trend else "SPEAKER"}</span>'
-                tag_html += '<span class="tag tag-new">NEW</span>'
-                if s.get("relevance_score", 0) >= 0.8:
-                    tag_html += '<span class="tag tag-urgent">HIGH RELEVANCE</span>'
-
+            with cols[i]:
                 st.markdown(f"""
-                <div class="intel-card {card_class}">
-                    <div style="margin-bottom:8px;">{tag_html}</div>
-                    <div style="font-size:1.1rem;font-weight:700;color:#e6edf3;margin-bottom:6px;">
-                        {s['title']}
+                <div class="hero-card">
+                    <div class="hero-rank">#{i+1} Speaker</div>
+                    <div class="hero-title">{sp['name']}<span style="color:#9ca3af;font-weight:400;font-size:0.85rem;">{sub_name}</span></div>
+                    <div style="font-size:0.8rem;color:#6b7280;">{sp.get('organization', '')}</div>
+                    <div class="sp-tags" style="margin-top:6px;">{tier_tag}</div>
+                    <div class="sp-expertise">{exp}</div>
+                    <div class="rel-bar-wrap">
+                        <div class="rel-bar-track">
+                            <div class="rel-bar-fill" style="width:{score*100:.0f}%;background:{sc};"></div>
+                        </div>
+                        <div class="rel-bar-val" style="color:{sc};">{score:.0%}</div>
                     </div>
-                """, unsafe_allow_html=True)
-
-                if is_trend:
-                    if s.get("summary"):
-                        st.markdown(f'<div style="color:#b1bac4;font-size:0.9rem;line-height:1.6;">{s["summary"]}</div>', unsafe_allow_html=True)
-                    cat = detail.get("category", "")
-                    why = detail.get("why_new", "")
-                    if cat:
-                        st.markdown(f'<span style="color:#8b949e;font-size:0.8rem;">Category: {cat}</span>', unsafe_allow_html=True)
-                    if why:
-                        st.markdown(f'<div style="color:#00d2ff;font-size:0.85rem;margin-top:4px;">💡 {why}</div>', unsafe_allow_html=True)
-                else:
-                    org = detail.get("organization", "")
-                    title_str = detail.get("title", "")
-                    why = detail.get("why_trending", "") or detail.get("why_new", "")
-                    tier = detail.get("suggested_tier", "")
-
-                    meta_parts = []
-                    if title_str:
-                        meta_parts.append(title_str)
-                    if org:
-                        meta_parts.append(f"@ {org}")
-                    if tier:
-                        tier_label = {"tier1_keynote": "🏆 Keynote", "tier3_track": "📌 Track"}.get(tier, tier)
-                        meta_parts.append(tier_label)
-
-                    if meta_parts:
-                        st.markdown(f'<div style="color:#8b949e;font-size:0.85rem;">{" · ".join(meta_parts)}</div>', unsafe_allow_html=True)
-                    if s.get("summary"):
-                        st.markdown(f'<div style="color:#b1bac4;font-size:0.9rem;line-height:1.6;margin-top:4px;">{s["summary"]}</div>', unsafe_allow_html=True)
-                    if why:
-                        st.markdown(f'<div style="color:#667eea;font-size:0.85rem;margin-top:4px;">💡 {why}</div>', unsafe_allow_html=True)
-                    if detail.get("linkedin_url"):
-                        st.markdown(f'[🔗 LinkedIn Profile]({detail["linkedin_url"]})')
-
-                # 소스 링크
-                urls = parse_urls(s.get("source_urls"))
-                if urls:
-                    with st.expander("📎 Sources"):
-                        for u in urls[:5]:
-                            st.markdown(f"- {u}")
-
-                st.markdown('</div>', unsafe_allow_html=True)
-
-            with col_score:
-                st.markdown(f"""
-                <div style="text-align:center;padding-top:1.5rem;">
-                    <div class="score-circle" style="background:{score_bg(score)};border:2px solid {sc};color:{sc};">
-                        {score:.0%}
-                    </div>
-                    <div style="color:#8b949e;font-size:0.65rem;margin-top:4px;">RELEVANCE</div>
+                    {pipe_html}
+                    <div class="pipe-label">{pipe_label}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
-            with col_act:
-                st.markdown("<div style='padding-top:1.2rem;'></div>", unsafe_allow_html=True)
-                if st.button("✅ Approve", key=f"ap_{s['id']}", use_container_width=True, type="primary"):
+        # Remaining speakers as compact list
+        if len(sorted_speakers) > 3:
+            for sp in sorted_speakers[3:9]:
+                score = sp.get("overall_score") or 0
+                sc = _sc(score)
+                tier = sp.get("tier", "")
+                tier_tag = '<span class="t t-amber">Keynote</span>' if tier == "tier1_keynote" else '<span class="t t-sky">Track</span>' if tier == "tier3_track" else ""
+                st.markdown(f"""
+                <div class="brief-card">
+                    <div class="brief-left">
+                        {tier_tag}
+                        <span class="brief-title">{sp['name']}</span>
+                        <span class="brief-meta">{sp.get('organization', '')}</span>
+                    </div>
+                    <div class="brief-right">
+                        <div class="rel-bar-val" style="color:{sc};">{score:.0%}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="empty">No speakers yet.</div>', unsafe_allow_html=True)
+
+    # ── Pending Review ──
+    if pending:
+        st.markdown(f'<div class="sec-title">Pending Review<span class="sec-count">{len(pending)}</span></div>', unsafe_allow_html=True)
+        for s in pending[:8]:
+            is_trend = s.get("suggestion_type") == "trend"
+            score = s.get("relevance_score") or 0
+            sc = _sc(score)
+            type_tag = '<span class="t t-blue">Trend</span>' if is_trend else '<span class="t t-purple">Speaker</span>'
+            high_tag = ' <span class="t t-red">High</span>' if score >= 0.8 else ""
+
+            col_m, col_a = st.columns([7, 1])
+            with col_m:
+                st.markdown(f"""
+                <div class="brief-card">
+                    <div class="brief-left">
+                        {type_tag}{high_tag}
+                        <span class="brief-title">{s['title']}</span>
+                        <div class="brief-desc">{s.get('summary', '')[:150]}</div>
+                    </div>
+                    <div class="brief-right">
+                        <div class="rel-bar-val" style="color:{sc};">{score:.0%}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_a:
+                if st.button("Approve", key=f"ap_{s['id']}", use_container_width=True, type="primary"):
                     api_patch(f"/suggestions/{s['id']}/approve", {"status": "approved"})
                     st.rerun()
-                if st.button("❌ Dismiss", key=f"dm_{s['id']}", use_container_width=True):
+                if st.button("Dismiss", key=f"dm_{s['id']}", use_container_width=True):
                     api_patch(f"/suggestions/{s['id']}/dismiss", {"status": "dismissed"})
                     st.rerun()
 
-    else:
-        st.markdown("""
-        <div class="intel-card" style="text-align:center;padding:2rem;">
-            <div style="font-size:1.2rem;color:#8b949e;margin-bottom:0.5rem;">
-                No pending items
-            </div>
-            <div style="font-size:0.85rem;color:#484f58;">
-                사이드바의 "Deep Research Scan" 버튼으로 AI 에이전트를 실행하세요.
-                <br>에이전트가 최신 AI 트렌드와 연사 후보를 자동으로 발굴합니다.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
 
-    # 최근 활동 타임라인
-    st.markdown("""
-    <div class="section-header" style="margin-top:2rem;">
-        <h2>⚡ Recent Intelligence Feed</h2>
-    </div>
-    """, unsafe_allow_html=True)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 2: RESEARCH — Deep Dive + Run Commands
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    if recent_suggestions:
-        for s in recent_suggestions[:10]:
-            detail = parse_detail(s.get("detail_json"))
-            is_trend = s["suggestion_type"] == "trend"
-            status = s.get("status", "")
-            score = s.get("relevance_score") or 0
+with tab_research:
 
-            status_badge = {
-                "pending_review": '<span class="tag tag-urgent">PENDING</span>',
-                "approved": '<span class="tag tag-new">APPROVED</span>',
-                "dismissed": '<span class="tag" style="background:rgba(139,148,158,0.15);color:#8b949e;">DISMISSED</span>',
-            }.get(status, "")
+    sub_trends, sub_speakers, sub_run = st.tabs(["Trends", "Speakers", "Commands"])
 
-            type_badge = f'<span class="tag tag-{"trend" if is_trend else "speaker"}">{"TREND" if is_trend else "SPEAKER"}</span>'
+    # ── Trends ──
+    with sub_trends:
+        if sorted_trends:
+            categories = sorted(set(t.get("category", "") for t in sorted_trends if t.get("category")))
+            cat_filter = st.selectbox("Category", ["All"] + categories, key="rt_cat")
+            display = sorted_trends if cat_filter == "All" else [t for t in sorted_trends if t.get("category") == cat_filter]
 
-            created = s.get("created_at", "")[:16]
+            for t in display:
+                score = t.get("relevance_score") or 0
+                cat = t.get("category", "")
+                tag_cls, bar_color = CAT_COLORS.get(cat, ("t-gray", "#6b7280"))
+                sc = _sc(score)
 
-            st.markdown(f"""
-            <div class="news-item">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <div>
-                        {type_badge} {status_badge}
-                        <span class="news-title" style="margin-left:4px;">{s['title']}</span>
-                    </div>
-                    <span style="color:{score_color(score)};font-weight:700;font-size:0.85rem;">{score:.0%}</span>
-                </div>
-                <div class="news-meta">{created}</div>
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.caption("아직 인텔리전스 피드가 없습니다. Deep Research Scan을 실행해주세요.")
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 2: TREND INTELLIGENCE
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-with tab_trends:
-
-    if isinstance(trends, list) and trends:
-        # 트렌드 메트릭 카드
-        sorted_trends = sorted(trends, key=lambda t: t.get("relevance_score") or 0, reverse=True)
-        top_n = min(6, len(sorted_trends))
-        cols = st.columns(top_n)
-
-        for i, t in enumerate(sorted_trends[:top_n]):
-            score = t.get("relevance_score") or 0
-            sc = score_color(score)
-            auto_badge = ' <span class="tag tag-auto">AI</span>' if t.get("is_auto_discovered") else ""
-            with cols[i]:
                 st.markdown(f"""
-                <div class="kpi-card">
-                    <div class="kpi-value" style="color:{sc};">{score:.0%}</div>
-                    <div class="kpi-label">{t['keyword']}{auto_badge}</div>
-                    <div style="color:#484f58;font-size:0.7rem;">{t.get('category', '')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-        st.markdown("")
-
-        # 트렌드 상세 카드
-        st.markdown(f"""
-        <div class="section-header">
-            <h2>Trend Analysis</h2>
-            <span class="count-badge">{len(trends)} tracked</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-        for t in sorted_trends:
-            score = t.get("relevance_score") or 0
-            sc = score_color(score)
-            auto = '<span class="tag tag-auto">AUTO-DISCOVERED</span>' if t.get("is_auto_discovered") else ""
-
-            with st.container():
-                c1, c2 = st.columns([5, 1])
-                with c1:
-                    st.markdown(f"""
-                    <div class="intel-card trend">
-                        <div style="margin-bottom:6px;">
-                            <span class="tag tag-trend">{t.get('category', 'TREND')}</span>
-                            {auto}
+                <div class="brief-card">
+                    <div class="brief-left">
+                        <span class="t {tag_cls}">{cat}</span>
+                        <span class="brief-title">{t['keyword']}</span>
+                        <div class="brief-desc">{t.get('description', '')}</div>
+                        <div class="rel-bar-wrap" style="max-width:300px;">
+                            <div class="rel-bar-track"><div class="rel-bar-fill" style="width:{score*100:.0f}%;background:{bar_color};"></div></div>
+                            <div class="rel-bar-val" style="color:{sc};">{score:.0%}</div>
                         </div>
-                        <div style="font-size:1.1rem;font-weight:700;color:#e6edf3;">{t['keyword']}</div>
-                        <div style="color:#b1bac4;font-size:0.9rem;margin-top:6px;line-height:1.6;">
-                            {t.get('description', '')}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    # 근거 자료
-                    evidence = t.get("evidence")
-                    if evidence:
-                        ev_list = parse_urls(evidence) if isinstance(evidence, str) else (evidence if isinstance(evidence, list) else [])
-                        if ev_list:
-                            with st.expander("📎 Evidence & Sources"):
-                                for ev in ev_list:
-                                    if isinstance(ev, dict):
-                                        src = ev.get("source", "")
-                                        url = ev.get("url", "")
-                                        snippet = ev.get("snippet", "")
-                                        if url:
-                                            st.markdown(f"- [{src}]({url}): {snippet}")
-                                        else:
-                                            st.markdown(f"- {src}: {snippet}")
-                                    else:
-                                        st.markdown(f"- {ev}")
-
-                with c2:
-                    st.markdown(f"""
-                    <div style="text-align:center;padding-top:1rem;">
-                        <div class="score-circle" style="background:{score_bg(score)};border:2px solid {sc};color:{sc};">
-                            {score:.0%}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-        # 카테고리 분포 차트
-        df = pd.DataFrame(trends)
-        if "category" in df.columns:
-            cat_counts = df["category"].value_counts()
-            if not cat_counts.empty:
-                st.markdown("""
-                <div class="section-header">
-                    <h2>Category Distribution</h2>
-                </div>
-                """, unsafe_allow_html=True)
-                st.bar_chart(cat_counts, height=250)
-
-    else:
-        st.markdown("""
-        <div class="intel-card" style="text-align:center;padding:3rem;">
-            <div style="font-size:2rem;margin-bottom:0.5rem;">📊</div>
-            <div style="font-size:1.1rem;color:#8b949e;">No trend data yet</div>
-            <div style="font-size:0.85rem;color:#484f58;margin-top:0.5rem;">
-                Deep Research Scan을 실행하면 AI 에이전트가 최신 AI 트렌드를 자동 분석합니다.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 3: SPEAKER INTELLIGENCE
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-with tab_speakers:
-
-    if isinstance(speakers, list) and speakers:
-        # 필터 바
-        fc1, fc2, fc3 = st.columns([1, 1, 3])
-        with fc1:
-            f_tier = st.selectbox("Tier", ["All", "tier1_keynote", "tier3_track", "unassigned"], key="ft")
-        with fc2:
-            f_status = st.selectbox("Status", ["All", "candidate", "shortlisted", "contacting", "confirmed", "declined"], key="fs")
-        with fc3:
-            f_search = st.text_input("🔍 Search", placeholder="Name, organization, keyword...", key="fsearch")
-
-        filtered = speakers
-        if f_tier != "All":
-            filtered = [s for s in filtered if s.get("tier") == f_tier]
-        if f_status != "All":
-            filtered = [s for s in filtered if s.get("status") == f_status]
-        if f_search:
-            q = f_search.lower()
-            filtered = [
-                s for s in filtered
-                if q in (s.get("name") or "").lower()
-                or q in (s.get("organization") or "").lower()
-                or q in (s.get("recommendation_reason") or "").lower()
-            ]
-
-        # 통계 바
-        confirmed = len([s for s in speakers if s.get("status") == "confirmed"])
-        shortlisted = len([s for s in speakers if s.get("status") == "shortlisted"])
-        contacting = len([s for s in speakers if s.get("status") == "contacting"])
-
-        m1, m2, m3, m4 = st.columns(4)
-        with m1:
-            st.markdown(f'<div class="kpi-card"><div class="kpi-value" style="color:#667eea;">{len(filtered)}</div><div class="kpi-label">Showing</div></div>', unsafe_allow_html=True)
-        with m2:
-            st.markdown(f'<div class="kpi-card"><div class="kpi-value" style="color:#00e676;">{confirmed}</div><div class="kpi-label">Confirmed</div></div>', unsafe_allow_html=True)
-        with m3:
-            st.markdown(f'<div class="kpi-card"><div class="kpi-value" style="color:#ffa657;">{shortlisted}</div><div class="kpi-label">Shortlisted</div></div>', unsafe_allow_html=True)
-        with m4:
-            st.markdown(f'<div class="kpi-card"><div class="kpi-value" style="color:#00d2ff;">{contacting}</div><div class="kpi-label">Contacting</div></div>', unsafe_allow_html=True)
-
-        st.markdown("")
-
-        # 연사 카드
-        for sp in filtered:
-            overall = sp.get("overall_score") or 0
-            sc = score_color(overall)
-            auto = '<span class="tag tag-auto">AI DISCOVERED</span>' if sp.get("is_auto_discovered") else ""
-
-            tier_map = {"tier1_keynote": ("🏆", "KEYNOTE"), "tier3_track": ("📌", "TRACK")}
-            tier_icon, tier_label = tier_map.get(sp.get("tier"), ("⬜", "UNASSIGNED"))
-
-            status_colors = {
-                "confirmed": "#00e676", "shortlisted": "#ffa657",
-                "contacting": "#00d2ff", "candidate": "#8b949e",
-                "declined": "#f85149", "rejected": "#f85149",
-            }
-            st_color = status_colors.get(sp.get("status"), "#8b949e")
-
-            c_info, c_scores, c_ctrl = st.columns([4, 2, 1])
-
-            with c_info:
-                st.markdown(f"""
-                <div class="intel-card speaker">
-                    <div style="margin-bottom:6px;">
-                        <span class="tag tag-speaker">{tier_label}</span>
-                        <span class="tag" style="background:{st_color}22;color:{st_color};">{sp.get('status', 'candidate').upper()}</span>
-                        {auto}
-                    </div>
-                    <div style="font-size:1.15rem;font-weight:700;color:#e6edf3;">
-                        {tier_icon} {sp['name']}
-                    </div>
-                    <div style="color:#8b949e;font-size:0.85rem;margin-top:2px;">
-                        {sp.get('title', '')} @ {sp.get('organization', 'N/A')} · {sp.get('country', '')}
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
 
-                if sp.get("recommendation_reason"):
-                    st.markdown(f'<div style="color:#b1bac4;font-size:0.85rem;line-height:1.5;margin-top:-0.5rem;padding:0 1.5rem 1rem;">{sp["recommendation_reason"][:200]}</div>', unsafe_allow_html=True)
+                # Detail expander
+                with st.expander(f"Details", expanded=False):
+                    ev = t.get("evidence", "")
+                    if ev:
+                        st.markdown(f"**Evidence:** {ev}")
+                    src = t.get("source_conferences", "")
+                    if src:
+                        st.markdown(f"**Sources:** {src}")
 
-                links = []
-                if sp.get("linkedin_url"):
-                    links.append(f"[LinkedIn]({sp['linkedin_url']})")
-                if sp.get("website_url"):
-                    links.append(f"[Website]({sp['website_url']})")
-                if links:
-                    st.markdown(" · ".join(links))
+                    sid = t.get("session_id")
+                    if sid:
+                        discs = api_get(f"/research/sessions/{sid}/discussions")
+                        if isinstance(discs, list) and discs:
+                            st.markdown("**Evaluations:**")
+                            for d in discs:
+                                a_lbl, a_cls = PERSONA.get(d.get("agent_name", ""), (d.get("agent_name", ""), "t-gray"))
+                                st.markdown(f"""
+                                <div class="disc-msg">
+                                    <div class="disc-agent"><span class="t {a_cls}">{a_lbl}</span> {d.get('message_type','')}</div>
+                                    <div class="disc-text">{d.get('content','')}</div>
+                                </div>
+                                """, unsafe_allow_html=True)
 
-            with c_scores:
-                st.markdown(f"""
-                <div style="text-align:center;padding-top:0.8rem;">
-                    <div class="score-circle" style="width:64px;height:64px;font-size:1.2rem;
-                         background:{score_bg(overall)};border:2px solid {sc};color:{sc};">
-                        {overall:.0%}
-                    </div>
-                    <div style="color:#8b949e;font-size:0.65rem;margin-top:4px;">OVERALL</div>
-                </div>
-                """, unsafe_allow_html=True)
+                    memo_k = f"mt_{t.get('id',0)}"
+                    st.text_area("My Notes", value=st.session_state.get(memo_k, ""), key=memo_k, height=60, placeholder="Your notes...")
+        else:
+            st.markdown('<div class="empty">No trends yet.</div>', unsafe_allow_html=True)
 
-                score_items = [
-                    ("Expertise", sp.get("expertise_score") or 0),
-                    ("Name Value", sp.get("name_value_score") or 0),
-                    ("Speaking", sp.get("speaking_score") or 0),
-                    ("Relevance", sp.get("relevance_score") or 0),
-                ]
-                for lbl, val in score_items:
-                    vc = score_color(val)
-                    st.markdown(f"""
-                    <div style="display:flex;align-items:center;gap:6px;margin:2px 0;">
-                        <span style="color:#8b949e;font-size:0.65rem;width:55px;">{lbl}</span>
-                        <div class="score-bar-pro" style="flex:1;">
-                            <div class="score-bar-fill-pro" style="width:{val*100:.0f}%;background:{vc};"></div>
-                        </div>
-                        <span style="color:{vc};font-size:0.7rem;font-weight:600;">{val:.0%}</span>
-                    </div>
-                    """, unsafe_allow_html=True)
+    # ── Speakers ──
+    with sub_speakers:
+        if sorted_speakers:
+            cf1, cf2, cf3 = st.columns(3)
+            with cf1:
+                tier_f = st.selectbox("Tier", ["All", "tier1_keynote", "tier3_track"], key="rs_tier",
+                                      format_func=lambda x: {"All":"All","tier1_keynote":"Keynote","tier3_track":"Track"}.get(x,x))
+            with cf2:
+                stat_f = st.selectbox("Status", ["All", "candidate", "shortlisted", "confirmed", "rejected"], key="rs_stat")
+            with cf3:
+                sort_f = st.selectbox("Sort", ["Score", "Name"], key="rs_sort")
 
-            with c_ctrl:
-                st.markdown("<div style='padding-top:0.5rem;'></div>", unsafe_allow_html=True)
-                statuses = ["candidate", "shortlisted", "contacting", "confirmed", "declined", "rejected"]
-                current = sp.get("status", "candidate")
-                idx = statuses.index(current) if current in statuses else 0
-                new_st = st.selectbox("Status", statuses, index=idx, key=f"st_{sp['id']}", label_visibility="collapsed")
-                if new_st != current:
-                    api_patch(f"/speakers/{sp['id']}", {"status": new_st})
-                    st.rerun()
+            disp = sorted_speakers[:]
+            if tier_f != "All":
+                disp = [s for s in disp if s.get("tier") == tier_f]
+            if stat_f != "All":
+                disp = [s for s in disp if s.get("status") == stat_f]
+            if sort_f == "Name":
+                disp = sorted(disp, key=lambda s: s.get("name", ""))
 
-            st.markdown("<div style='border-bottom:1px solid #21262d;margin:0.5rem 0;'></div>", unsafe_allow_html=True)
+            # Card grid (3 cols)
+            rows = [disp[i:i+3] for i in range(0, len(disp), 3)]
+            for row in rows:
+                cols = st.columns(3)
+                for i, sp in enumerate(row):
+                    with cols[i]:
+                        score = sp.get("overall_score") or 0
+                        sc = _sc(score)
+                        tier = sp.get("tier", "")
+                        status = sp.get("status", "candidate")
+                        sid = sp.get("id", 0)
 
-    else:
-        st.markdown("""
-        <div class="intel-card" style="text-align:center;padding:3rem;">
-            <div style="font-size:2rem;margin-bottom:0.5rem;">🎤</div>
-            <div style="font-size:1.1rem;color:#8b949e;">No speaker data yet</div>
-            <div style="font-size:0.85rem;color:#484f58;margin-top:0.5rem;">
-                Deep Research Scan을 실행하면 AI 에이전트가 연사 후보를 자동 발굴합니다.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+                        tier_tag = '<span class="t t-amber">Keynote</span>' if tier == "tier1_keynote" else '<span class="t t-sky">Track</span>' if tier == "tier3_track" else ""
+                        status_tag = {"shortlisted":'<span class="t t-green">Shortlisted</span>',"confirmed":'<span class="t t-green">Confirmed</span>',"rejected":'<span class="t t-red">Rejected</span>'}.get(status, "")
 
+                        name_ko = sp.get("name_ko", "")
+                        nk = f" ({name_ko})" if name_ko else ""
+                        exp = sp.get("expertise", "")
+                        if len(exp) > 80:
+                            exp = exp[:80] + "..."
+                        country = sp.get("country", "")
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 4: NEWS & CURATION — 기획자를 위한 뉴스
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                        pipe = _pipe_status(status)
+                        pipe_html = '<div class="pipeline">'
+                        for step in range(1, 4):
+                            cls = "done" if step < pipe else ("active" if step == pipe else "")
+                            pipe_html += f'<div class="pipe-step {cls}"></div>'
+                        pipe_html += '</div>'
 
-with tab_news:
-
-    st.markdown("""
-    <div class="section-header">
-        <h2>📰 Conference Planner Intelligence</h2>
-    </div>
-    """, unsafe_allow_html=True)
-    st.caption("AI 에이전트가 수집한 트렌드/연사 정보를 기획자 관점에서 큐레이션합니다.")
-
-    # 트렌드 기반 뉴스 큐레이션
-    curated_trends = sorted(
-        [s for s in suggestions if s.get("suggestion_type") == "trend"] if isinstance(suggestions, list) else [],
-        key=lambda x: x.get("created_at", ""),
-        reverse=True,
-    )
-    curated_speakers = sorted(
-        [s for s in suggestions if s.get("suggestion_type") == "speaker"] if isinstance(suggestions, list) else [],
-        key=lambda x: x.get("created_at", ""),
-        reverse=True,
-    )
-
-    col_news, col_picks = st.columns([3, 2])
-
-    with col_news:
-        st.markdown("##### 🔥 Latest AI Trend Insights")
-
-        if curated_trends:
-            for item in curated_trends[:10]:
-                detail = parse_detail(item.get("detail_json"))
-                score = item.get("relevance_score") or 0
-                sc = score_color(score)
-                status = item.get("status", "")
-                created = item.get("created_at", "")[:10]
-                urls = parse_urls(item.get("source_urls"))
-
-                status_badge = {
-                    "approved": "✅",
-                    "pending_review": "🔔",
-                    "dismissed": "⏭️",
-                }.get(status, "")
-
-                st.markdown(f"""
-                <div class="news-item">
-                    <div style="display:flex;justify-content:space-between;align-items:start;">
-                        <div style="flex:1;">
-                            <div class="news-title">{status_badge} {item['title']}</div>
-                            <div class="news-meta">
-                                {created} · Relevance: <span style="color:{sc};font-weight:600;">{score:.0%}</span>
-                                {f" · Category: {detail.get('category', '')}" if detail.get('category') else ""}
+                        st.markdown(f"""
+                        <div class="sp-card">
+                            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                                <div class="sp-name">{sp['name']}<span style="color:#9ca3af;font-size:0.8rem;font-weight:400;">{nk}</span></div>
+                                <div class="rel-bar-val" style="color:{sc};">{score:.0%}</div>
                             </div>
-                            <div class="news-summary">{item.get('summary', '')}</div>
+                            <div class="sp-org">{sp.get('organization','')}{(' · ' + country) if country else ''}</div>
+                            <div class="sp-tags">{tier_tag} {status_tag}</div>
+                            <div class="sp-expertise">{exp}</div>
+                            {pipe_html}
                         </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                        """, unsafe_allow_html=True)
 
-                if urls:
-                    with st.expander(f"Sources ({len(urls)})"):
-                        for u in urls[:5]:
-                            st.markdown(f"- {u}")
+                        with st.expander("Details", expanded=False):
+                            # Scores
+                            parts = []
+                            for lbl, key in [("Expertise","expertise_score"),("Name Value","name_value_score"),("Speaking","speaking_score"),("Relevance","relevance_score")]:
+                                v = sp.get(key) or 0
+                                if v:
+                                    parts.append(f"{lbl}: {v:.0%}")
+                            if parts:
+                                st.caption(" | ".join(parts))
+
+                            bio = sp.get("bio", "")
+                            if bio:
+                                st.markdown(f"**Bio:** {bio}")
+                            reason = sp.get("recommendation_reason", "")
+                            if reason:
+                                st.markdown(f"**Why:** {reason}")
+
+                            # Discussions
+                            sp_sid = sp.get("session_id")
+                            if sp_sid:
+                                discs = api_get(f"/research/sessions/{sp_sid}/discussions")
+                                if isinstance(discs, list) and discs:
+                                    st.markdown("**Evaluations:**")
+                                    for d in discs:
+                                        a_lbl, a_cls = PERSONA.get(d.get("agent_name",""), (d.get("agent_name",""), "t-gray"))
+                                        st.markdown(f"""
+                                        <div class="disc-msg">
+                                            <div class="disc-agent"><span class="t {a_cls}">{a_lbl}</span></div>
+                                            <div class="disc-text">{d.get('content','')}</div>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+
+                            memo_k = f"ms_{sid}"
+                            st.text_area("Notes", value=st.session_state.get(memo_k,""), key=memo_k, height=60, placeholder="Your notes...")
+
+                            c_s1, c_s2 = st.columns(2)
+                            with c_s1:
+                                new_st = st.selectbox("Status", ["candidate","shortlisted","confirmed","rejected"],
+                                    index=["candidate","shortlisted","confirmed","rejected"].index(status) if status in ["candidate","shortlisted","confirmed","rejected"] else 0,
+                                    key=f"st_{sid}")
+                            with c_s2:
+                                if st.button("Update", key=f"up_{sid}", use_container_width=True):
+                                    api_patch(f"/speakers/{sid}", {"status": new_st})
+                                    st.rerun()
+                st.markdown("")
         else:
-            st.info("아직 트렌드 뉴스가 없습니다. Deep Research Scan을 실행해주세요.")
+            st.markdown('<div class="empty">No speakers yet.</div>', unsafe_allow_html=True)
 
-    with col_picks:
-        st.markdown("##### 🎯 Speaker Picks")
+    # ── Commands ──
+    with sub_run:
+        st.markdown('<div class="sec-title">Research Commands</div>', unsafe_allow_html=True)
 
-        if curated_speakers:
-            for item in curated_speakers[:8]:
-                detail = parse_detail(item.get("detail_json"))
-                score = item.get("relevance_score") or 0
-                sc = score_color(score)
-                org = detail.get("organization", "")
-                why = detail.get("why_trending", "") or detail.get("why_new", "")
+        c_r1, c_r2 = st.columns(2)
+        with c_r1:
+            st.markdown("**Trend Research**")
+            tq = st.text_input("Keywords", placeholder="AI Agents, Edge AI...", key="cmd_tq")
+            if st.button("Start", key="cmd_t", use_container_width=True, type="primary"):
+                if tq:
+                    r = api_post("/research/trends", {"query": tq})
+                    if r.get("session_id"):
+                        st.success(f"Session #{r['session_id']} started")
+        with c_r2:
+            st.markdown("**Speaker Search**")
+            sq = st.text_input("Topic", placeholder="Agentic AI", key="cmd_sq")
+            st_tier = st.selectbox("Tier", ["tier3_track","tier1_keynote"], key="cmd_st",
+                                   format_func=lambda x: "Track" if x=="tier3_track" else "Keynote")
+            if st.button("Find", key="cmd_s", use_container_width=True, type="primary"):
+                if sq:
+                    r = api_post("/research/speakers", {"topic": sq, "tier": st_tier})
+                    if r.get("session_id"):
+                        st.success(f"Session #{r['session_id']} started")
 
-                st.markdown(f"""
-                <div class="news-item">
-                    <div class="news-title">{item['title']}</div>
-                    <div class="news-meta">
-                        {f"{org} · " if org else ""}Score: <span style="color:{sc};font-weight:600;">{score:.0%}</span>
-                    </div>
-                    {"<div class='news-summary'>💡 " + why + "</div>" if why else ""}
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.info("아직 연사 후보가 없습니다.")
+        st.divider()
+        c_sc, c_ev = st.columns(2)
+        with c_sc:
+            if st.button("Deep Research Scan", use_container_width=True):
+                r = api_post("/suggestions/scan", {})
+                if r.get("session_id"):
+                    st.success(f"Scan #{r['session_id']}")
+        with c_ev:
+            if st.button("Planner Evaluation", use_container_width=True):
+                r = api_post("/planner/evaluate", {})
+                if r.get("session_id"):
+                    st.success(f"Eval #{r['session_id']}")
 
-    # 피드백 히스토리
-    st.markdown("""
-    <div class="section-header" style="margin-top:2rem;">
-        <h2>💬 Team Feedback</h2>
-    </div>
-    """, unsafe_allow_html=True)
+        # Feedback
+        st.divider()
+        st.markdown('<div class="sec-title">Feedback</div>', unsafe_allow_html=True)
+        fb = st.text_area("Content", height=80, key="fb_c", placeholder="Add feedback...")
+        fb_t = st.selectbox("Type", ["general","direction","speaker","trend","track"], key="fb_t")
+        if st.button("Submit", key="fb_s"):
+            if fb:
+                r = api_post("/feedback", {"content": fb, "feedback_type": fb_t})
+                if r.get("id"):
+                    st.success("Submitted")
 
-    if isinstance(feedback_list, list) and feedback_list:
-        for fb in feedback_list[:10]:
-            fb_type_colors = {
-                "speaker": "#667eea", "trend": "#00d2ff",
-                "direction": "#ffa657", "track": "#00e676",
-                "general": "#8b949e",
-            }
-            fb_color = fb_type_colors.get(fb.get("feedback_type", ""), "#8b949e")
-
+        # Sessions
+        st.divider()
+        st.markdown('<div class="sec-title">Recent Sessions</div>', unsafe_allow_html=True)
+        for s in (sessions or [])[:8]:
+            stat = s.get("status","")
+            st_tag = {"running":'<span class="t t-amber">Running</span>',"completed":'<span class="t t-green">Done</span>',"failed":'<span class="t t-red">Failed</span>'}.get(stat, f'<span class="t t-gray">{stat}</span>')
             st.markdown(f"""
-            <div class="news-item" style="border-left:3px solid {fb_color};">
-                <div style="display:flex;justify-content:space-between;">
-                    <span class="tag" style="background:{fb_color}22;color:{fb_color};">{fb.get('feedback_type', '').upper()}</span>
-                    <span class="news-meta">{fb.get('created_at', '')[:16]}</span>
+            <div class="brief-card">
+                <div class="brief-left">
+                    {st_tag} <span class="brief-title">{s.get('session_type','')}</span>
+                    <span class="brief-meta">{s.get('input_query','')}</span>
                 </div>
-                <div class="news-summary" style="margin-top:6px;">{fb.get('content', '')}</div>
+                <div class="brief-right"><span class="brief-meta">{s.get('created_at','')[:16]}</span></div>
             </div>
             """, unsafe_allow_html=True)
-    else:
-        st.caption("피드백이 없습니다. 사이드바에서 피드백을 입력하세요.")
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 5: AGENT ACTIVITY
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 3: PLAN — Tracks + Planning Summary
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-with tab_activity:
+with tab_plan:
 
-    st.markdown("""
-    <div class="section-header">
-        <h2>🤖 Agent Research Sessions</h2>
-    </div>
-    """, unsafe_allow_html=True)
+    # ── Tracks (Sched-inspired color-coded grid) ──
+    st.markdown(f'<div class="sec-title">Conference Tracks<span class="sec-count">{len(tracks)}</span></div>', unsafe_allow_html=True)
 
-    if isinstance(sessions, list) and sessions:
-        for sess in sessions[:20]:
-            status_icon = {
-                "running": "🔄", "completed": "✅", "failed": "❌",
-            }.get(sess.get("status"), "❓")
-            type_colors = {
-                "trend": "#00d2ff", "speaker": "#667eea",
-                "daily_scan": "#e94560", "feedback": "#ffa657",
-            }
-            type_label = {
-                "trend": "TREND RESEARCH", "speaker": "SPEAKER SEARCH",
-                "daily_scan": "DEEP SCAN", "feedback": "FEEDBACK ANALYSIS",
-            }.get(sess.get("session_type"), sess.get("session_type", "").upper())
-            tc = type_colors.get(sess.get("session_type"), "#8b949e")
-
-            is_running = sess.get("status") == "running"
+    if tracks:
+        for idx, track in enumerate(tracks):
+            tc = TRACK_COLORS[idx % len(TRACK_COLORS)]
+            tid = track.get("id", 0)
 
             st.markdown(f"""
-            <div class="intel-card" style="border-left:3px solid {tc};{'animation:livepulse 2s infinite;' if is_running else ''}">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <div>
-                        <span class="tag" style="background:{tc}22;color:{tc};">{type_label}</span>
-                        <span style="font-weight:600;color:#e6edf3;margin-left:6px;">
-                            {status_icon} {sess.get('input_query', 'Auto scan')[:80]}
-                        </span>
-                    </div>
-                    <span class="news-meta">{sess.get('created_at', '')[:16]}</span>
+            <div class="trk-card" style="border-left:4px solid {tc};">
+                <div class="trk-name">{track['name']}</div>
+                <div class="trk-desc">{track.get('description', '')}</div>
+                <div class="trk-meta">
+                    <strong>Audience:</strong> {track.get('target_audience', '')} &middot;
+                    <strong>Format:</strong> {track.get('session_format', '')}
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
-            if sess.get("status") == "completed" and sess.get("result_summary"):
-                with st.expander(f"View Results (#{sess['id']})"):
-                    st.text(sess["result_summary"][:1000])
+            trk_speakers = [s for s in speakers if s.get("track_id") == tid]
+            if trk_speakers:
+                with st.expander(f"Assigned Speakers ({len(trk_speakers)})"):
+                    for sp in trk_speakers:
+                        sc = sp.get("overall_score") or 0
+                        st.markdown(f"- **{sp['name']}** ({sp.get('organization','')}) — {sc:.0%}")
 
-                    discussions = api_get(f"/research/sessions/{sess['id']}/discussions")
-                    if discussions:
-                        st.markdown("**Agent Discussion:**")
-                        for disc in discussions:
-                            icon = {
-                                "proposal": "💡", "critique": "🔍",
-                                "revision": "📝", "consensus": "🤝",
-                            }.get(disc.get("message_type"), "💭")
-                            st.markdown(f"**{icon} {disc['agent_name']}** ({disc['message_type']})")
-                            st.text(disc["content"][:500])
+            st.markdown("")
     else:
-        st.markdown("""
-        <div class="intel-card" style="text-align:center;padding:2rem;">
-            <div style="font-size:1.5rem;margin-bottom:0.5rem;">🤖</div>
-            <div style="color:#8b949e;">No agent activity yet. Start a Deep Research Scan.</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown('<div class="empty">No tracks defined yet.</div>', unsafe_allow_html=True)
 
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 하단: 트랙 구성
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-with st.expander("📋 Track Configuration"):
-    track_list = api_get("/tracks")
-
-    col_add, _ = st.columns([1, 3])
-    with col_add:
-        with st.popover("➕ Add Track"):
-            tn = st.text_input("Name", key="tn_add")
-            td = st.text_area("Description", key="td_add", height=60)
-            ta = st.text_input("Target Audience", key="ta_add")
-            if st.button("Create", key="add_trk"):
-                if tn:
-                    api_post("/tracks", {"name": tn, "description": td or None, "target_audience": ta or None})
+    # Add Track
+    with st.expander("Add New Track"):
+        tn = st.text_input("Name", key="nt_n")
+        td = st.text_area("Description", key="nt_d", height=60)
+        ta = st.text_input("Audience", key="nt_a")
+        tf = st.text_input("Format", key="nt_f", placeholder="Keynote 1 + Panel 2 + Case Study 2")
+        if st.button("Create", key="nt_btn"):
+            if tn:
+                r = api_post("/tracks", {"name": tn, "description": td, "target_audience": ta, "session_format": tf})
+                if r.get("id"):
+                    st.success(f"Created: {tn}")
                     st.rerun()
 
-    if isinstance(track_list, list) and track_list:
-        cols = st.columns(min(len(track_list), 4))
-        for i, track in enumerate(track_list):
-            with cols[i % 4]:
-                st.markdown(f"""
-                <div class="intel-card">
-                    <div style="font-weight:700;color:#e6edf3;">{track['name']}</div>
-                    <div style="color:#8b949e;font-size:0.8rem;margin-top:4px;">{track.get('description', '')}</div>
+    st.divider()
+
+    # ── Planning Summary ──
+    st.markdown('<div class="sec-title">Planning Summary</div>', unsafe_allow_html=True)
+
+    tier1 = [s for s in speakers if s.get("tier") == "tier1_keynote"]
+    tier3 = [s for s in speakers if s.get("tier") == "tier3_track"]
+    shortlisted = [s for s in speakers if s.get("status") == "shortlisted"]
+    confirmed = [s for s in speakers if s.get("status") == "confirmed"]
+
+    c1, c2, c3, c4 = st.columns(4)
+    for col, val, lbl in [
+        (c1, len(tier1), "Keynote Pool"), (c2, len(tier3), "Track Pool"),
+        (c3, len(shortlisted), "Shortlisted"), (c4, len(confirmed), "Confirmed"),
+    ]:
+        with col:
+            st.markdown(f'<div class="kpi-item"><div class="kpi-num">{val}</div><div class="kpi-lbl">{lbl}</div></div>', unsafe_allow_html=True)
+
+    # Feedback History
+    if feedback_list:
+        st.markdown(f'<div class="sec-title">Feedback<span class="sec-count">{len(feedback_list)}</span></div>', unsafe_allow_html=True)
+        for fb in feedback_list[:8]:
+            st.markdown(f"""
+            <div class="brief-card">
+                <div class="brief-left">
+                    <span class="t t-gray">{fb.get('feedback_type','')}</span>
+                    <span class="brief-title">{fb.get('content','')[:100]}</span>
                 </div>
-                """, unsafe_allow_html=True)
-    else:
-        st.caption("No tracks configured yet.")
+                <div class="brief-right"><span class="brief-meta">{fb.get('created_at','')[:10]}</span></div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # Planner Tasks
+    planner_tasks = api_get("/planner/tasks")
+    if isinstance(planner_tasks, list) and planner_tasks:
+        st.markdown(f'<div class="sec-title">Planner Tasks<span class="sec-count">{len(planner_tasks)}</span></div>', unsafe_allow_html=True)
+        for pt in planner_tasks:
+            p = pt.get("priority", "")
+            p_tag = '<span class="t t-red">High</span>' if p == "high" else f'<span class="t t-gray">{p}</span>'
+            st.markdown(f"""
+            <div class="brief-card">
+                <div class="brief-left">
+                    {p_tag} <span class="brief-title">{pt.get('task_type','')} — {pt.get('query','')}</span>
+                    <div class="brief-desc">{pt.get('reason','')}</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
