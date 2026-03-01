@@ -253,9 +253,15 @@ async def save_daily_suggestion_handler(args: dict[str, Any]) -> dict[str, Any]:
 
     db = await _get_connection()
     try:
+        # source_urls: 리스트/딕트/문자열 모두 처리
         source_urls = args.get("source_urls")
-        if isinstance(source_urls, list):
+        if isinstance(source_urls, (list, dict)):
             source_urls = json.dumps(source_urls, ensure_ascii=False)
+
+        # detail_json: 딕트/리스트면 JSON 문자열로 변환
+        detail_json = args.get("detail_json")
+        if isinstance(detail_json, (dict, list)):
+            detail_json = json.dumps(detail_json, ensure_ascii=False)
 
         cursor = await db.execute(
             """INSERT INTO daily_suggestions
@@ -267,7 +273,7 @@ async def save_daily_suggestion_handler(args: dict[str, Any]) -> dict[str, Any]:
                 args["suggestion_type"],
                 args["title"],
                 args.get("summary"),
-                args.get("detail_json"),
+                detail_json,
                 source_urls,
                 args.get("relevance_score"),
                 args.get("session_id"),
