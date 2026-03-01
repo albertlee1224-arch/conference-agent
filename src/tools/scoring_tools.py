@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 
-async def score_speaker_handler(args: dict[str, Any]) -> dict[str, Any]:
+async def score_speaker_handler(args: dict[str, Any]) -> str:
     """연사 적합성 종합 점수 계산.
 
     가중치:
@@ -44,18 +44,11 @@ async def score_speaker_handler(args: dict[str, Any]) -> dict[str, Any]:
         tier = "unassigned"
         tier_label = "미배정"
 
-    return {
-        "content": [
-            {
-                "type": "text",
-                "text": (
-                    f"종합 점수: {overall:.2f}\n"
-                    f"  - 전문성: {expertise:.2f} (×{weights['expertise']})\n"
-                    f"  - 네임밸류: {name_value:.2f} (×{weights['name_value']})\n"
-                    f"  - 강연이력: {speaking:.2f} (×{weights['speaking']})\n"
-                    f"  - 적합도: {relevance:.2f} (×{weights['relevance']})\n"
-                    f"추천 티어: {tier_label} ({tier})"
-                ),
-            }
-        ]
-    }
+    return (
+        f"종합 점수: {overall:.2f}\n"
+        f"  - 전문성: {expertise:.2f} (×{weights['expertise']})\n"
+        f"  - 네임밸류: {name_value:.2f} (×{weights['name_value']})\n"
+        f"  - 강연이력: {speaking:.2f} (×{weights['speaking']})\n"
+        f"  - 적합도: {relevance:.2f} (×{weights['relevance']})\n"
+        f"추천 티어: {tier_label} ({tier})"
+    )

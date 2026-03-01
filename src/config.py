@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     daily_scan_minute: int = 0
     scan_interval_hours: int = 6  # 주기적 스캔 간격 (시간)
 
+    # Planner Director
+    planner_enabled: bool = True
+    planner_auto_execute: bool = True  # 발견된 high 과제 자동 실행
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @property

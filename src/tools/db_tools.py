@@ -18,7 +18,7 @@ async def _get_connection() -> aiosqlite.Connection:
     return db
 
 
-async def save_trend_handler(args: dict[str, Any]) -> dict[str, Any]:
+async def save_trend_handler(args: dict[str, Any]) -> str:
     """트렌드를 DB에 저장."""
     db = await _get_connection()
     try:
@@ -47,19 +47,12 @@ async def save_trend_handler(args: dict[str, Any]) -> dict[str, Any]:
         )
         await db.commit()
         trend_id = cursor.lastrowid
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"트렌드 '{args['keyword']}' 저장 완료 (ID: {trend_id})",
-                }
-            ]
-        }
+        return f"트렌드 '{args['keyword']}' 저장 완료 (ID: {trend_id})"
     finally:
         await db.close()
 
 
-async def save_speaker_handler(args: dict[str, Any]) -> dict[str, Any]:
+async def save_speaker_handler(args: dict[str, Any]) -> str:
     """연사 후보를 DB에 저장."""
     db = await _get_connection()
     try:
@@ -119,22 +112,15 @@ async def save_speaker_handler(args: dict[str, Any]) -> dict[str, Any]:
         )
         await db.commit()
         speaker_id = cursor.lastrowid
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": (
-                        f"연사 '{args['name']}' ({args.get('organization', 'N/A')}) "
-                        f"저장 완료 (ID: {speaker_id}, Tier: {tier})"
-                    ),
-                }
-            ]
-        }
+        return (
+            f"연사 '{args['name']}' ({args.get('organization', 'N/A')}) "
+            f"저장 완료 (ID: {speaker_id}, Tier: {tier})"
+        )
     finally:
         await db.close()
 
 
-async def get_trends_handler(args: dict[str, Any]) -> dict[str, Any]:
+async def get_trends_handler(args: dict[str, Any]) -> str:
     """저장된 트렌드 목록 조회."""
     db = await _get_connection()
     try:
@@ -152,19 +138,12 @@ async def get_trends_handler(args: dict[str, Any]) -> dict[str, Any]:
         rows = await cursor.fetchall()
         trends = [dict(row) for row in rows]
 
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": json.dumps(trends, ensure_ascii=False, indent=2),
-                }
-            ]
-        }
+        return json.dumps(trends, ensure_ascii=False, indent=2)
     finally:
         await db.close()
 
 
-async def get_speakers_handler(args: dict[str, Any]) -> dict[str, Any]:
+async def get_speakers_handler(args: dict[str, Any]) -> str:
     """저장된 연사 후보 목록 조회."""
     db = await _get_connection()
     try:
@@ -185,19 +164,12 @@ async def get_speakers_handler(args: dict[str, Any]) -> dict[str, Any]:
         rows = await cursor.fetchall()
         speakers = [dict(row) for row in rows]
 
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": json.dumps(speakers, ensure_ascii=False, indent=2),
-                }
-            ]
-        }
+        return json.dumps(speakers, ensure_ascii=False, indent=2)
     finally:
         await db.close()
 
 
-async def update_speaker_status_handler(args: dict[str, Any]) -> dict[str, Any]:
+async def update_speaker_status_handler(args: dict[str, Any]) -> str:
     """연사 상태 변경."""
     db = await _get_connection()
     try:
@@ -206,19 +178,12 @@ async def update_speaker_status_handler(args: dict[str, Any]) -> dict[str, Any]:
             (args["status"], args["speaker_id"]),
         )
         await db.commit()
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"연사 ID {args['speaker_id']} 상태 → {args['status']}",
-                }
-            ]
-        }
+        return f"연사 ID {args['speaker_id']} 상태 → {args['status']}"
     finally:
         await db.close()
 
 
-async def save_discussion_handler(args: dict[str, Any]) -> dict[str, Any]:
+async def save_discussion_handler(args: dict[str, Any]) -> str:
     """에이전트 토론 기록 저장."""
     db = await _get_connection()
     try:
@@ -235,19 +200,12 @@ async def save_discussion_handler(args: dict[str, Any]) -> dict[str, Any]:
             ),
         )
         await db.commit()
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"토론 기록 저장 (ID: {cursor.lastrowid})",
-                }
-            ]
-        }
+        return f"토론 기록 저장 (ID: {cursor.lastrowid})"
     finally:
         await db.close()
 
 
-async def save_daily_suggestion_handler(args: dict[str, Any]) -> dict[str, Any]:
+async def save_daily_suggestion_handler(args: dict[str, Any]) -> str:
     """일일 자동 스캔 제안 저장."""
     from datetime import date
 
@@ -281,16 +239,9 @@ async def save_daily_suggestion_handler(args: dict[str, Any]) -> dict[str, Any]:
         )
         await db.commit()
         suggestion_id = cursor.lastrowid
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": (
-                        f"제안 저장 완료 — [{args['suggestion_type']}] "
-                        f"'{args['title']}' (ID: {suggestion_id})"
-                    ),
-                }
-            ]
-        }
+        return (
+            f"제안 저장 완료 — [{args['suggestion_type']}] "
+            f"'{args['title']}' (ID: {suggestion_id})"
+        )
     finally:
         await db.close()

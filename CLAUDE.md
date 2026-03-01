@@ -67,23 +67,24 @@
 ## 기술 스택
 
 - **언어**: Python 3.11+
-- **에이전트 프레임워크**: Claude Agent SDK (`claude-agent-sdk>=0.1.44`)
-- **LLM**: Claude API (Anthropic)
+- **에이전트 프레임워크**: Anthropic Python SDK (`anthropic>=0.40.0`) — 직접 API 호출 + 자체 agentic loop
+- **LLM**: Claude API (Anthropic) — 모델: claude-sonnet-4-20250514
 - **백엔드**: FastAPI + uvicorn
-- **프론트엔드**: Streamlit 대시보드 (4탭)
+- **프론트엔드**: Streamlit 대시보드 (5탭)
 - **DB**: SQLite (aiosqlite) — WAL 모드
-- **검색/리서치**: WebSearch / WebFetch (Agent SDK 내장)
+- **검색/리서치**: Anthropic 내장 web_search_20250305 도구
 - **배포**: Render (백엔드) + Streamlit Community Cloud (프론트)
 - **패키지 관리**: pip + pyproject.toml
 
 ### 팀에이전트 아키텍처
-- **Orchestrator**: 토론 진행, 합의 도출
-- **기능 에이전트**: Trend Researcher, Speaker Researcher
-- **페르소나 에이전트** (토론 패널):
+- **Orchestrator**: 순차 에이전트 호출로 토론 진행 + 합의 도출
+- **기능 에이전트**: Trend Researcher, Speaker Researcher (run_agent() 호출)
+- **페르소나 에이전트** (토론 패널 — 순차 평가):
   1. AI 기술 전문가 — 기술적 타당성/최신성
   2. 대기업 참가자 — 비즈니스 가치/ROI
   3. 오퍼레이션 담당자 — 섭외 현실성/비용
   4. 일반 참가자 — 흥미도/접근성
+- **Planner Director**: 데이터 품질 평가 + 자동 개선 과제 생성 (메타 에이전트)
 
 ---
 
@@ -98,14 +99,16 @@ conference-agent/
 │   ├── main.py            # FastAPI 앱 진입점
 │   ├── config.py          # 환경변수/설정 관리
 │   ├── agents/            # 에이전트 정의
-│   │   ├── orchestrator.py    # 팀 토론 조율, MCP 서버, 실행 함수
+│   │   ├── agent_loop.py      # Anthropic SDK agentic loop (핵심)
+│   │   ├── tool_defs.py       # 도구 정의 + 핸들러 레지스트리
+│   │   ├── orchestrator.py    # 팀 토론 조율, 순차 에이전트 호출
 │   │   ├── trend_researcher.py
 │   │   ├── speaker_researcher.py
 │   │   └── personas.py        # 4개 페르소나 에이전트
-│   ├── tools/             # @tool 커스텀 도구
-│   │   ├── db_tools.py        # DB CRUD 도구
-│   │   └── scoring_tools.py   # 연사 스코어링
-│   ├── prompts/           # 프롬프트 템플릿 (6종)
+│   ├── tools/             # DB/스코어링 핸들러
+│   │   ├── db_tools.py        # DB CRUD 핸들러 (str 반환)
+│   │   └── scoring_tools.py   # 연사 스코어링 (str 반환)
+│   ├── prompts/           # 프롬프트 템플릿 (7종, planner_director.py 포함)
 │   ├── db/                # DB 레이어
 │   │   ├── database.py        # SQLite 초기화, 스키마
 │   │   ├── models.py          # Pydantic 모델
@@ -115,7 +118,8 @@ conference-agent/
 │   │   ├── speakers.py        # 연사 CRUD
 │   │   ├── trends.py          # 트렌드 조회
 │   │   ├── tracks.py          # 트랙 CRUD
-│   │   └── feedback.py        # 피드백 입력/처리
+│   │   ├── feedback.py        # 피드백 입력/처리
+│   │   └── planner.py         # Planner Director API
 │   └── web/
 │       └── app.py             # Streamlit 대시보드
 ├── data/
@@ -166,8 +170,8 @@ semgrep scan --config auto .
 - 루트 CLAUDE.md의 보안 원칙(§6-1) 항상 적용
 - PRD: `docs/PRD.md` 참조
 - 개발 계획: `~/.claude/plans/compressed-seeking-lemon.md`
-- 현재 단계: MVP 구현 완료 (백엔드 + 에이전트 + 대시보드 + 테스트)
+- 현재 단계: Anthropic SDK 마이그레이션 완료 + Planner Director 에이전트 추가
 
 ---
 
-*생성일: 2026.03.01 | 마지막 업데이트: 2026.03.01*
+*생성일: 2026.03.01 | 마지막 업데이트: 2026.03.02*

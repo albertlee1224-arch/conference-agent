@@ -208,3 +208,45 @@ async def test_discussions(db):
     assert len(discussions) == 1
     assert discussions[0]["agent_name"] == "ai-tech-expert"
     assert discussions[0]["message_type"] == "critique"
+
+
+async def test_planner_session_type(db):
+    """planner 세션 타입이 유효한지 테스트."""
+    sid = await queries.create_session(db, "planner", "planner evaluation")
+    assert sid == 1
+    session = await queries.get_session(db, sid)
+    assert session["session_type"] == "planner"
+
+
+async def test_planner_tasks_table(db):
+    """planner_tasks 테이블 CRUD 테스트."""
+    sid = await queries.create_session(db, "planner", "test eval")
+
+    # Insert
+    cursor = await db.execute(
+        """INSERT INTO planner_tasks
+           (task_type, priority, query, reason, status, session_id)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        ("trend", "high", "AI Agents enterprise", "트렌드 부족", "pending", sid),
+    )
+    await db.commit()
+    task_id = cursor.lastrowid
+    assert task_id == 1
+
+    # Read
+    cursor = await db.execute("SELECT * FROM planner_tasks WHERE id = ?", (task_id,))
+    task = dict(await cursor.fetchone())
+    assert task["task_type"] == "trend"
+    assert task["priority"] == "high"
+    assert task["status"] == "pending"
+
+    # Update status
+    await db.execute(
+        "UPDATE planner_tasks SET status = 'completed', completed_at = datetime('now') WHERE id = ?",
+        (task_id,),
+    )
+    await db.commit()
+    cursor = await db.execute("SELECT * FROM planner_tasks WHERE id = ?", (task_id,))
+    task = dict(await cursor.fetchone())
+    assert task["status"] == "completed"
+    assert task["completed_at"] is not None

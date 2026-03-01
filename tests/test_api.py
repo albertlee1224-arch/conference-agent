@@ -130,6 +130,20 @@ async def test_suggestions_flow(client: AsyncClient):
     assert "session_id" in r.json()
 
 
+async def test_planner_tasks_empty(client: AsyncClient):
+    r = await client.get("/api/planner/tasks")
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+    assert len(r.json()) == 0
+
+
+async def test_planner_evaluate_trigger(client: AsyncClient):
+    r = await client.post("/api/planner/evaluate")
+    assert r.status_code == 200
+    assert "session_id" in r.json()
+    assert r.json()["status"] == "running"
+
+
 async def test_research_sessions(client: AsyncClient):
     # Start trend research (agent won't run in test)
     r = await client.post("/api/research/trends", json={

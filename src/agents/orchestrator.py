@@ -1,378 +1,124 @@
-"""Orchestrator — 팀에이전트 토론 조율 및 에이전트 실행.
+"""Orchestrator — Anthropic SDK 기반 팀에이전트 오케스트레이션.
 
-Claude Agent SDK의 query() + AgentDefinition을 활용하여
-기능 에이전트(리서치)와 페르소나 에이전트(평가)의 토론을 진행합니다.
+claude-agent-sdk 없이 직접 Anthropic API를 호출하여
+트렌드/연사 리서치, 일일 스캔, 피드백 처리를 수행합니다.
+멀티에이전트는 순차 호출 패턴으로 구현합니다.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 from typing import Any
 
-from claude_agent_sdk import (
-    AgentDefinition,
-    ClaudeAgentOptions,
-    create_sdk_mcp_server,
-    query,
-    tool,
+import aiosqlite
+
+from src.agents.agent_loop import WEB_SEARCH_TOOL, run_agent
+from src.agents.tool_defs import (
+    DAILY_SCAN_TOOLS,
+    FEEDBACK_TOOLS,
+    PERSONA_TOOLS,
+    SPEAKER_RESEARCH_TOOLS,
+    TOOL_HANDLERS,
+    TREND_RESEARCH_TOOLS,
 )
+from src.agents.personas import PERSONA_AGENTS
+from src.config import settings
+from src.db import queries as q
+from src.prompts.orchestrator import ORCHESTRATOR_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
-from src.prompts.orchestrator import ORCHESTRATOR_SYSTEM_PROMPT
-from src.agents.trend_researcher import TREND_RESEARCHER_AGENT
-from src.agents.speaker_researcher import SPEAKER_RESEARCHER_AGENT
-from src.agents.personas import PERSONA_AGENTS
-from src.tools.db_tools import (
-    save_trend_handler,
-    save_speaker_handler,
-    get_trends_handler,
-    get_speakers_handler,
-    update_speaker_status_handler,
-    save_discussion_handler,
-    save_daily_suggestion_handler,
-)
-from src.tools.scoring_tools import score_speaker_handler
-from src.config import settings
+
+# ── 페르소나 평가 공통 함수 ─────────────────────────────────
 
 
-# === 커스텀 도구를 @tool 데코레이터로 래핑 ===
+async def _run_persona_evaluation(
+    research_result: str,
+    session_id: int,
+    context_label: str,
+) -> str:
+    """4명의 페르소나 에이전트에게 리서치 결과를 순차 평가받는다."""
+    evaluations: list[str] = []
 
+    for persona_name, persona_config in PERSONA_AGENTS.items():
+        tools = list(PERSONA_TOOLS)
+        if persona_config.get("tools"):
+            tools.append(WEB_SEARCH_TOOL)
 
-@tool(
-    "save_trend",
-    "트렌드 키워드를 데이터베이스에 저장합니다",
-    {
-        "type": "object",
-        "properties": {
-            "keyword": {"type": "string", "description": "트렌드 키워드 (영문)"},
-            "category": {"type": "string", "description": "분류"},
-            "description": {"type": "string", "description": "설명 (한국어)"},
-            "evidence": {
-                "type": "array",
-                "description": "근거 자료 [{source, url, snippet}]",
-            },
-            "source_conferences": {
-                "type": "array",
-                "description": "출처 컨퍼런스 목록",
-            },
-            "relevance_score": {
-                "type": "number",
-                "description": "적합도 0.0~1.0",
-            },
-            "session_id": {"type": "integer", "description": "리서치 세션 ID"},
-        },
-        "required": ["keyword", "description"],
-    },
-)
-async def save_trend(args: dict[str, Any]) -> dict[str, Any]:
-    return await save_trend_handler(args)
-
-
-@tool(
-    "save_speaker",
-    "연사 후보 정보를 데이터베이스에 저장합니다",
-    {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string", "description": "연사 이름 (영문)"},
-            "name_ko": {"type": "string"},
-            "title": {"type": "string", "description": "직함"},
-            "organization": {"type": "string", "description": "소속"},
-            "country": {"type": "string"},
-            "bio": {"type": "string"},
-            "expertise": {"type": "array", "items": {"type": "string"}},
-            "tier": {
-                "type": "string",
-                "enum": ["tier1_keynote", "tier3_track", "unassigned"],
-            },
-            "overall_score": {"type": "number"},
-            "expertise_score": {"type": "number"},
-            "name_value_score": {"type": "number"},
-            "speaking_score": {"type": "number"},
-            "relevance_score": {"type": "number"},
-            "linkedin_url": {"type": "string"},
-            "website_url": {"type": "string"},
-            "speaking_history": {"type": "array"},
-            "publications": {"type": "array"},
-            "recommendation_reason": {"type": "string"},
-            "source_channel": {"type": "string"},
-            "session_id": {"type": "integer"},
-        },
-        "required": ["name", "recommendation_reason"],
-    },
-)
-async def save_speaker(args: dict[str, Any]) -> dict[str, Any]:
-    return await save_speaker_handler(args)
-
-
-@tool(
-    "get_trends",
-    "저장된 트렌드 목록을 조회합니다",
-    {
-        "type": "object",
-        "properties": {
-            "category": {"type": "string"},
-            "limit": {"type": "integer", "default": 20},
-        },
-    },
-)
-async def get_trends(args: dict[str, Any]) -> dict[str, Any]:
-    return await get_trends_handler(args)
-
-
-@tool(
-    "get_speakers",
-    "저장된 연사 후보 목록을 조회합니다",
-    {
-        "type": "object",
-        "properties": {
-            "tier": {"type": "string"},
-            "status": {"type": "string"},
-            "limit": {"type": "integer", "default": 20},
-        },
-    },
-)
-async def get_speakers(args: dict[str, Any]) -> dict[str, Any]:
-    return await get_speakers_handler(args)
-
-
-@tool(
-    "update_speaker_status",
-    "연사 상태를 변경합니다",
-    {
-        "type": "object",
-        "properties": {
-            "speaker_id": {"type": "integer"},
-            "status": {
-                "type": "string",
-                "enum": [
-                    "candidate", "shortlisted", "contacting",
-                    "confirmed", "declined", "rejected",
-                ],
-            },
-        },
-        "required": ["speaker_id", "status"],
-    },
-)
-async def update_speaker_status(args: dict[str, Any]) -> dict[str, Any]:
-    return await update_speaker_status_handler(args)
-
-
-@tool(
-    "score_speaker",
-    "연사 적합성 종합 점수를 계산합니다",
-    {
-        "type": "object",
-        "properties": {
-            "expertise_score": {"type": "number"},
-            "name_value_score": {"type": "number"},
-            "speaking_score": {"type": "number"},
-            "relevance_score": {"type": "number"},
-        },
-        "required": [
-            "expertise_score",
-            "name_value_score",
-            "speaking_score",
-            "relevance_score",
-        ],
-    },
-)
-async def score_speaker(args: dict[str, Any]) -> dict[str, Any]:
-    return await score_speaker_handler(args)
-
-
-@tool(
-    "save_discussion",
-    "에이전트 토론 기록을 저장합니다",
-    {
-        "type": "object",
-        "properties": {
-            "session_id": {"type": "integer"},
-            "agent_name": {"type": "string"},
-            "message_type": {
-                "type": "string",
-                "enum": ["proposal", "critique", "revision", "consensus"],
-            },
-            "content": {"type": "string"},
-            "round_number": {"type": "integer", "default": 1},
-        },
-        "required": ["session_id", "agent_name", "message_type", "content"],
-    },
-)
-async def save_discussion(args: dict[str, Any]) -> dict[str, Any]:
-    return await save_discussion_handler(args)
-
-
-@tool(
-    "save_daily_suggestion",
-    "일일 자동 스캔에서 발굴한 트렌드/연사 제안을 저장합니다",
-    {
-        "type": "object",
-        "properties": {
-            "suggestion_type": {
-                "type": "string",
-                "enum": ["trend", "speaker"],
-                "description": "제안 유형",
-            },
-            "title": {"type": "string", "description": "트렌드 키워드 또는 연사 이름 (영문)"},
-            "summary": {"type": "string", "description": "왜 새롭고 중요한지 설명 (한국어)"},
-            "detail_json": {"description": "상세 정보 (JSON 객체 또는 문자열)"},
-            "source_urls": {"description": "근거 URL (배열 또는 JSON 문자열)"},
-            "relevance_score": {"type": "number", "description": "적합도 0.0~1.0"},
-            "session_id": {"type": "integer", "description": "스캔 세션 ID"},
-        },
-        "required": ["suggestion_type", "title", "summary"],
-    },
-)
-async def save_daily_suggestion(args: dict[str, Any]) -> dict[str, Any]:
-    return await save_daily_suggestion_handler(args)
-
-
-# === MCP 서버 구성 ===
-
-
-conference_tools_server = create_sdk_mcp_server(
-    name="conference_tools",
-    version="1.0.0",
-    tools=[
-        save_trend,
-        save_speaker,
-        get_trends,
-        get_speakers,
-        update_speaker_status,
-        score_speaker,
-        save_discussion,
-        save_daily_suggestion,
-    ],
-)
-
-
-# === 에이전트 정의 빌드 ===
-
-
-def _build_agents(
-    daily_scan_context: dict[str, str] | None = None,
-) -> dict[str, AgentDefinition]:
-    """기능 에이전트 + 페르소나 에이전트를 AgentDefinition으로 변환."""
-    from src.prompts.daily_scan import (
-        DAILY_TREND_SCAN_PROMPT,
-        DAILY_SPEAKER_SCAN_PROMPT,
-    )
-
-    agents = {}
-
-    # 기능 에이전트
-    for name, config in [
-        ("trend-researcher", TREND_RESEARCHER_AGENT),
-        ("speaker-researcher", SPEAKER_RESEARCHER_AGENT),
-    ]:
-        agents[name] = AgentDefinition(
-            description=config["description"],
-            prompt=config["prompt"],
-            tools=config["tools"],
-            model=config.get("model"),
+        prompt = (
+            f"리서치 세션 ID: {session_id}\n\n"
+            f"당신은 {persona_config['description']}입니다.\n\n"
+            f"다음 {context_label} 결과를 당신의 관점에서 평가하세요:\n\n"
+            f"{research_result}\n\n"
+            f"평가 후 save_discussion 도구로 평가 내용을 저장하세요.\n"
+            f"agent_name: '{persona_name}', message_type: 'critique'"
         )
 
-    # 일일 스캔 에이전트 (컨텍스트가 있을 때만 추가)
-    if daily_scan_context:
-        # .format() 대신 .replace()로 치환 — 프롬프트 내 JSON 중괄호와 충돌 방지
-        trend_prompt = DAILY_TREND_SCAN_PROMPT.replace(
-            "{existing_trends}", daily_scan_context.get("trends", "없음"),
+        logger.info(f"페르소나 평가 시작: {persona_name}")
+        evaluation = await run_agent(
+            system_prompt=persona_config["prompt"],
+            user_prompt=prompt,
+            tools=tools,
+            tool_handlers=TOOL_HANDLERS,
+            max_turns=5,
         )
-        speaker_prompt = DAILY_SPEAKER_SCAN_PROMPT.replace(
-            "{existing_trends}", daily_scan_context.get("trends", "없음"),
-        ).replace(
-            "{existing_speakers}", daily_scan_context.get("speakers", "없음"),
-        )
+        evaluations.append(f"[{persona_name}]\n{evaluation}")
 
-        agents["trend-scanner"] = AgentDefinition(
-            description="최신 AI 트렌드를 능동적으로 탐지하는 에이전트",
-            prompt=trend_prompt,
-            tools=[
-                "WebSearch",
-                "WebFetch",
-                "mcp__conference_tools__save_daily_suggestion",
-            ],
-            model="sonnet",
-        )
-        agents["speaker-scanner"] = AgentDefinition(
-            description="새로운 해외 연사 후보를 능동적으로 발굴하는 에이전트",
-            prompt=speaker_prompt,
-            tools=[
-                "WebSearch",
-                "WebFetch",
-                "mcp__conference_tools__save_daily_suggestion",
-            ],
-            model="sonnet",
-        )
-
-    # 페르소나 에이전트
-    for name, config in PERSONA_AGENTS.items():
-        agents[name] = AgentDefinition(
-            description=config["description"],
-            prompt=config["prompt"],
-            tools=config["tools"],
-            model=config.get("model"),
-        )
-
-    return agents
+    return "\n\n---\n\n".join(evaluations)
 
 
-# === 메인 실행 함수 ===
-
-
-async def _collect_results(messages_iter) -> str:
-    """에이전트 메시지 스트림에서 텍스트 결과를 수집."""
-    result_parts: list[str] = []
-    async for message in messages_iter:
-        if hasattr(message, "content") and message.content:
-            for block in message.content:
-                if hasattr(block, "text"):
-                    result_parts.append(block.text)
-    return "\n".join(result_parts) if result_parts else ""
+# ── 메인 실행 함수 ──────────────────────────────────────────
 
 
 async def run_trend_research(query_text: str, session_id: int) -> str:
     """트렌드 리서치 + 페르소나 토론 실행."""
+    from src.prompts.trend_research import TREND_RESEARCH_PROMPT
+
     logger.info(f"트렌드 리서치 시작 (session={session_id}, query={query_text})")
 
-    prompt = (
+    # 1단계: 트렌드 리서치
+    research_prompt = (
         f"리서치 세션 ID: {session_id}\n\n"
         f"다음 주제에 대해 AI SUMMIT AND EXPO 2026에 적합한 트렌드를 리서치하세요: "
         f"{query_text}\n\n"
-        f"트렌드 리서치 후, 4명의 페르소나 패널(ai-tech-expert, enterprise-attendee, "
-        f"operations-manager, general-attendee)에게 평가를 받고, "
-        f"피드백을 반영하여 최종 트렌드 리스트를 확정하세요.\n\n"
-        f"각 단계에서 save_discussion 도구로 토론 기록을 저장하세요."
+        f"발견한 각 트렌드를 save_trend 도구로 DB에 저장하세요."
     )
 
-    try:
-        result = await _collect_results(
-            query(
-                prompt=prompt,
-                options=ClaudeAgentOptions(
-                    system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
-                    allowed_tools=[
-                        "Task",
-                        "mcp__conference_tools__save_trend",
-                        "mcp__conference_tools__get_trends",
-                        "mcp__conference_tools__save_discussion",
-                    ],
-                    mcp_servers={"conference_tools": conference_tools_server},
-                    agents=_build_agents(),
-                    permission_mode="bypassPermissions",
-                    max_turns=settings.max_agent_turns,
-                ),
-            )
-        )
-        logger.info(f"트렌드 리서치 완료 (session={session_id})")
-        return result or "리서치 완료"
-    except Exception as e:
-        logger.error(f"트렌드 리서치 에러 (session={session_id}): {e}")
-        raise
+    research_result = await run_agent(
+        system_prompt=TREND_RESEARCH_PROMPT,
+        user_prompt=research_prompt,
+        tools=TREND_RESEARCH_TOOLS + [WEB_SEARCH_TOOL],
+        tool_handlers=TOOL_HANDLERS,
+        max_turns=settings.max_agent_turns,
+    )
+    logger.info("트렌드 리서치 1단계(리서치) 완료")
+
+    # 2단계: 페르소나 평가
+    persona_feedback = await _run_persona_evaluation(
+        research_result, session_id, "트렌드 리서치"
+    )
+    logger.info("트렌드 리서치 2단계(페르소나 평가) 완료")
+
+    # 3단계: 피드백 반영 및 최종 확정
+    final_prompt = (
+        f"리서치 세션 ID: {session_id}\n\n"
+        f"## 1차 리서치 결과\n{research_result}\n\n"
+        f"## 페르소나 패널 피드백\n{persona_feedback}\n\n"
+        f"페르소나 피드백을 반영하여 트렌드 리스트를 최종 확정하세요.\n"
+        f"필요한 경우 점수를 조정하거나 새 트렌드를 추가하세요.\n"
+        f"최종 결론을 save_discussion(message_type='consensus')로 저장하세요."
+    )
+
+    final_result = await run_agent(
+        system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
+        user_prompt=final_prompt,
+        tools=TREND_RESEARCH_TOOLS + [WEB_SEARCH_TOOL],
+        tool_handlers=TOOL_HANDLERS,
+        max_turns=10,
+    )
+
+    logger.info(f"트렌드 리서치 완료 (session={session_id})")
+    return final_result
 
 
 async def run_speaker_research(
@@ -383,60 +129,71 @@ async def run_speaker_research(
     session_id: int = 0,
 ) -> str:
     """연사 추천 + 페르소나 토론 실행."""
+    from src.prompts.speaker_research import SPEAKER_RESEARCH_PROMPT
+
     logger.info(f"연사 추천 시작 (session={session_id}, topic={topic})")
 
-    prompt = (
+    # 1단계: 연사 리서치
+    research_prompt = (
         f"리서치 세션 ID: {session_id}\n\n"
         f"주제: {topic}\n"
         f"티어: {tier}\n"
         f"추천 수: {count}명\n"
     )
     if preferences:
-        prompt += f"선호 조건: {preferences}\n"
-
-    prompt += (
-        f"\n해외 연사 후보를 발굴하고, 4명의 페르소나 패널에게 다면 평가를 받으세요.\n"
-        f"패널 합의를 바탕으로 최종 스코어를 확정하고 DB에 저장하세요.\n"
-        f"각 단계에서 save_discussion 도구로 토론 기록을 저장하세요."
+        research_prompt += f"선호 조건: {preferences}\n"
+    research_prompt += (
+        f"\n해외 연사 후보를 발굴하고, 각 후보를 save_speaker 도구로 DB에 저장하세요."
     )
 
-    try:
-        result = await _collect_results(
-            query(
-                prompt=prompt,
-                options=ClaudeAgentOptions(
-                    system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
-                    allowed_tools=[
-                        "Task",
-                        "mcp__conference_tools__save_speaker",
-                        "mcp__conference_tools__get_speakers",
-                        "mcp__conference_tools__score_speaker",
-                        "mcp__conference_tools__save_discussion",
-                    ],
-                    mcp_servers={"conference_tools": conference_tools_server},
-                    agents=_build_agents(),
-                    permission_mode="bypassPermissions",
-                    max_turns=settings.max_agent_turns,
-                ),
-            )
-        )
-        logger.info(f"연사 추천 완료 (session={session_id})")
-        return result or "연사 추천 완료"
-    except Exception as e:
-        logger.error(f"연사 추천 에러 (session={session_id}): {e}")
-        raise
+    research_result = await run_agent(
+        system_prompt=SPEAKER_RESEARCH_PROMPT,
+        user_prompt=research_prompt,
+        tools=SPEAKER_RESEARCH_TOOLS + [WEB_SEARCH_TOOL],
+        tool_handlers=TOOL_HANDLERS,
+        max_turns=settings.max_agent_turns,
+    )
+    logger.info("연사 추천 1단계(리서치) 완료")
+
+    # 2단계: 페르소나 평가
+    persona_feedback = await _run_persona_evaluation(
+        research_result, session_id, "연사 추천"
+    )
+    logger.info("연사 추천 2단계(페르소나 평가) 완료")
+
+    # 3단계: 피드백 반영 및 최종 확정
+    final_prompt = (
+        f"리서치 세션 ID: {session_id}\n\n"
+        f"## 1차 연사 후보\n{research_result}\n\n"
+        f"## 페르소나 패널 피드백\n{persona_feedback}\n\n"
+        f"패널 합의를 바탕으로 연사 스코어를 조정하고 최종 확정하세요.\n"
+        f"필요하면 score_speaker 도구로 점수를 재계산하세요.\n"
+        f"최종 결론을 save_discussion(message_type='consensus')로 저장하세요."
+    )
+
+    final_result = await run_agent(
+        system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
+        user_prompt=final_prompt,
+        tools=SPEAKER_RESEARCH_TOOLS + [WEB_SEARCH_TOOL],
+        tool_handlers=TOOL_HANDLERS,
+        max_turns=10,
+    )
+
+    logger.info(f"연사 추천 완료 (session={session_id})")
+    return final_result
 
 
 async def run_daily_scan(session_id: int) -> str:
     """매일 자동 실행되는 트렌드/연사 통합 스캔."""
-    from src.prompts.daily_scan import DAILY_SCAN_ORCHESTRATOR_PROMPT
+    from src.prompts.daily_scan import (
+        DAILY_SCAN_ORCHESTRATOR_PROMPT,
+        DAILY_SPEAKER_SCAN_PROMPT,
+        DAILY_TREND_SCAN_PROMPT,
+    )
 
     logger.info(f"일일 스캔 시작 (session={session_id})")
 
-    # 기존 트렌드/연사 목록을 가져와 중복 방지 컨텍스트 구성
-    import aiosqlite
-    from src.db import queries as q
-
+    # 기존 트렌드/연사 목록 — 중복 방지용 컨텍스트
     db = await aiosqlite.connect(str(settings.database_path))
     db.row_factory = aiosqlite.Row
     try:
@@ -453,46 +210,76 @@ async def run_daily_scan(session_id: int) -> str:
         f"- {s['name']} ({s.get('organization', '')})" for s in speakers
     ) if speakers else "아직 없음"
 
-    daily_scan_context = {
-        "trends": trends_text,
-        "speakers": speakers_text,
-    }
-
-    prompt = (
-        f"일일 스캔 세션 ID: {session_id}\n\n"
-        f"오늘의 자동 스캔을 시작합니다.\n"
-        f"1. trend-scanner에게 최신 트렌드 탐색을 요청하세요.\n"
-        f"2. speaker-scanner에게 새 연사 후보 탐색을 요청하세요.\n"
-        f"3. 페르소나 패널에게 간략한 검증을 받으세요.\n"
-        f"4. 모든 결과를 save_daily_suggestion 도구로 저장하세요.\n\n"
-        f"각 단계에서 save_discussion 도구로 과정을 기록하세요."
+    # .replace()로 치환 — 프롬프트 내 JSON 중괄호와 충돌 방지
+    trend_prompt = DAILY_TREND_SCAN_PROMPT.replace(
+        "{existing_trends}", trends_text,
+    )
+    speaker_prompt = DAILY_SPEAKER_SCAN_PROMPT.replace(
+        "{existing_trends}", trends_text,
+    ).replace(
+        "{existing_speakers}", speakers_text,
     )
 
-    try:
-        result = await _collect_results(
-            query(
-                prompt=prompt,
-                options=ClaudeAgentOptions(
-                    system_prompt=DAILY_SCAN_ORCHESTRATOR_PROMPT,
-                    allowed_tools=[
-                        "Task",
-                        "mcp__conference_tools__save_daily_suggestion",
-                        "mcp__conference_tools__get_trends",
-                        "mcp__conference_tools__get_speakers",
-                        "mcp__conference_tools__save_discussion",
-                    ],
-                    mcp_servers={"conference_tools": conference_tools_server},
-                    agents=_build_agents(daily_scan_context=daily_scan_context),
-                    permission_mode="bypassPermissions",
-                    max_turns=settings.max_agent_turns,
-                ),
-            )
-        )
-        logger.info(f"일일 스캔 완료 (session={session_id})")
-        return result or "일일 스캔 완료"
-    except Exception as e:
-        logger.error(f"일일 스캔 에러 (session={session_id}): {e}")
-        raise
+    # 1단계: 트렌드 스캔
+    trend_scan_prompt = (
+        f"일일 스캔 세션 ID: {session_id}\n\n"
+        f"최신 AI 트렌드를 탐색하고 save_daily_suggestion으로 저장하세요."
+    )
+
+    trend_result = await run_agent(
+        system_prompt=trend_prompt,
+        user_prompt=trend_scan_prompt,
+        tools=DAILY_SCAN_TOOLS + [WEB_SEARCH_TOOL],
+        tool_handlers=TOOL_HANDLERS,
+        max_turns=settings.max_agent_turns,
+    )
+    logger.info("일일 스캔 — 트렌드 스캔 완료")
+
+    # 2단계: 연사 스캔
+    speaker_scan_prompt = (
+        f"일일 스캔 세션 ID: {session_id}\n\n"
+        f"새 해외 연사 후보를 탐색하고 save_daily_suggestion으로 저장하세요."
+    )
+
+    speaker_result = await run_agent(
+        system_prompt=speaker_prompt,
+        user_prompt=speaker_scan_prompt,
+        tools=DAILY_SCAN_TOOLS + [WEB_SEARCH_TOOL],
+        tool_handlers=TOOL_HANDLERS,
+        max_turns=settings.max_agent_turns,
+    )
+    logger.info("일일 스캔 — 연사 스캔 완료")
+
+    # 3단계: 페르소나 간략 검증
+    combined_result = (
+        f"## 트렌드 스캔 결과\n{trend_result}\n\n"
+        f"## 연사 스캔 결과\n{speaker_result}"
+    )
+
+    persona_feedback = await _run_persona_evaluation(
+        combined_result, session_id, "일일 스캔"
+    )
+    logger.info("일일 스캔 — 페르소나 검증 완료")
+
+    # 4단계: 최종 정리
+    final_prompt = (
+        f"세션 ID: {session_id}\n\n"
+        f"## 스캔 결과\n{combined_result}\n\n"
+        f"## 페르소나 피드백\n{persona_feedback}\n\n"
+        f"오늘의 일일 스캔 결과를 종합하세요.\n"
+        f"save_discussion(message_type='consensus')으로 최종 요약을 저장하세요."
+    )
+
+    final_result = await run_agent(
+        system_prompt=DAILY_SCAN_ORCHESTRATOR_PROMPT,
+        user_prompt=final_prompt,
+        tools=DAILY_SCAN_TOOLS,
+        tool_handlers=TOOL_HANDLERS,
+        max_turns=10,
+    )
+
+    logger.info(f"일일 스캔 완료 (session={session_id})")
+    return final_result
 
 
 async def run_feedback_processing(
@@ -510,34 +297,156 @@ async def run_feedback_processing(
         f"피드백 유형: {feedback_type}\n"
         f"피드백 내용: {feedback_content}\n\n"
         f"이 피드백을 분석하고 적절한 조치를 취하세요.\n"
-        f"필요한 경우 관련 에이전트에게 추가 리서치를 요청하세요.\n"
         f"save_discussion 도구로 처리 과정을 기록하세요."
     )
 
+    result = await run_agent(
+        system_prompt=FEEDBACK_PROMPT,
+        user_prompt=prompt,
+        tools=FEEDBACK_TOOLS + [WEB_SEARCH_TOOL],
+        tool_handlers=TOOL_HANDLERS,
+        max_turns=settings.max_agent_turns,
+    )
+
+    logger.info(f"피드백 처리 완료 (session={session_id})")
+    return result
+
+
+async def run_planner_evaluation(session_id: int) -> str:
+    """DB 현황 평가 → 부족한 부분 식별 → 자동 리서치 트리거."""
+    from src.prompts.planner_director import PLANNER_DIRECTOR_PROMPT
+
+    logger.info(f"Planner 평가 시작 (session={session_id})")
+
+    # DB 통계 수집
+    db = await aiosqlite.connect(str(settings.database_path))
+    db.row_factory = aiosqlite.Row
     try:
-        result = await _collect_results(
-            query(
-                prompt=prompt,
-                options=ClaudeAgentOptions(
-                    system_prompt=FEEDBACK_PROMPT,
-                    allowed_tools=[
-                        "Task",
-                        "mcp__conference_tools__get_trends",
-                        "mcp__conference_tools__get_speakers",
-                        "mcp__conference_tools__update_speaker_status",
-                        "mcp__conference_tools__save_trend",
-                        "mcp__conference_tools__save_speaker",
-                        "mcp__conference_tools__save_discussion",
-                    ],
-                    mcp_servers={"conference_tools": conference_tools_server},
-                    agents=_build_agents(),
-                    permission_mode="bypassPermissions",
-                    max_turns=settings.max_agent_turns,
-                ),
-            )
+        trends = await q.list_trends(db)
+        speakers = await q.list_speakers(db)
+
+        cursor = await db.execute(
+            "SELECT COUNT(*) as cnt FROM daily_suggestions WHERE status = 'pending_review'"
         )
-        logger.info(f"피드백 처리 완료 (session={session_id})")
-        return result or "피드백 처리 완료"
-    except Exception as e:
-        logger.error(f"피드백 처리 에러 (session={session_id}): {e}")
-        raise
+        pending = (await cursor.fetchone())["cnt"]
+
+        cursor = await db.execute(
+            "SELECT COUNT(*) as cnt FROM daily_suggestions WHERE status = 'approved'"
+        )
+        approved = (await cursor.fetchone())["cnt"]
+    finally:
+        await db.close()
+
+    # 통계 텍스트 구성
+    stats_text = (
+        f"## 현재 데이터 현황\n"
+        f"- 등록된 트렌드: {len(trends)}개\n"
+        f"- 등록된 연사 후보: {len(speakers)}개\n"
+        f"- 대기 중인 제안: {pending}개\n"
+        f"- 승인된 제안: {approved}개\n\n"
+    )
+
+    if trends:
+        # 카테고리별 분포
+        categories: dict[str, int] = {}
+        for t in trends:
+            cat = t.get("category", "미분류") or "미분류"
+            categories[cat] = categories.get(cat, 0) + 1
+        stats_text += "### 트렌드 카테고리 분포\n"
+        for cat, cnt in sorted(categories.items(), key=lambda x: -x[1]):
+            stats_text += f"- {cat}: {cnt}개\n"
+
+    if speakers:
+        # 티어별 분포
+        tiers: dict[str, int] = {}
+        for s in speakers:
+            tier = s.get("tier", "unassigned") or "unassigned"
+            tiers[tier] = tiers.get(tier, 0) + 1
+        stats_text += "\n### 연사 티어 분포\n"
+        for tier, cnt in sorted(tiers.items()):
+            stats_text += f"- {tier}: {cnt}명\n"
+
+        # 국가별 분포
+        countries: dict[str, int] = {}
+        for s in speakers:
+            country = s.get("country", "미상") or "미상"
+            countries[country] = countries.get(country, 0) + 1
+        stats_text += "\n### 연사 국가 분포\n"
+        for country, cnt in sorted(countries.items(), key=lambda x: -x[1])[:10]:
+            stats_text += f"- {country}: {cnt}명\n"
+
+    prompt = (
+        f"Planner 평가 세션 ID: {session_id}\n\n"
+        f"{stats_text}\n\n"
+        f"위 데이터 현황을 분석하고, 개선 과제를 도출하세요.\n"
+        f"각 과제를 JSON 형태로 출력하세요."
+    )
+
+    evaluation_result = await run_agent(
+        system_prompt=PLANNER_DIRECTOR_PROMPT,
+        user_prompt=prompt,
+        tools=DAILY_SCAN_TOOLS,
+        tool_handlers=TOOL_HANDLERS,
+        max_turns=10,
+    )
+
+    # 자동 실행이 활성화된 경우, 평가 결과에서 과제를 파싱하여 실행
+    if settings.planner_enabled and settings.planner_auto_execute:
+        import json
+
+        try:
+            # 결과에서 JSON 배열 추출 시도
+            tasks = _extract_tasks_from_result(evaluation_result)
+            for task in tasks:
+                if task.get("priority") == "high":
+                    task_type = task.get("type", "")
+                    task_query = task.get("query", "")
+                    logger.info(
+                        f"Planner 자동 실행: {task_type} — {task_query}"
+                    )
+
+                    # planner_tasks 테이블에 기록
+                    db = await aiosqlite.connect(str(settings.database_path))
+                    db.row_factory = aiosqlite.Row
+                    try:
+                        await db.execute(
+                            """INSERT INTO planner_tasks
+                               (task_type, priority, query, reason, status, session_id)
+                               VALUES (?, ?, ?, ?, 'running', ?)""",
+                            (
+                                task_type,
+                                task["priority"],
+                                task_query,
+                                task.get("reason", ""),
+                                session_id,
+                            ),
+                        )
+                        await db.commit()
+                    finally:
+                        await db.close()
+
+                    if task_type == "trend":
+                        await run_trend_research(task_query, session_id)
+                    elif task_type == "speaker":
+                        await run_speaker_research(task_query, session_id=session_id)
+        except Exception as e:
+            logger.warning(f"Planner 자동 실행 중 오류 (비치명적): {e}")
+
+    logger.info(f"Planner 평가 완료 (session={session_id})")
+    return evaluation_result
+
+
+def _extract_tasks_from_result(result: str) -> list[dict[str, Any]]:
+    """에이전트 응답에서 JSON 과제 배열을 추출."""
+    import json
+    import re
+
+    # JSON 배열 패턴 찾기
+    match = re.search(r'\[[\s\S]*?\]', result)
+    if match:
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
+
+    return []

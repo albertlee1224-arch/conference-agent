@@ -10,7 +10,7 @@ SCHEMA_SQL = """
 -- 리서치 세션 관리
 CREATE TABLE IF NOT EXISTS research_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_type TEXT NOT NULL CHECK(session_type IN ('trend', 'speaker', 'feedback', 'daily_scan')),
+    session_type TEXT NOT NULL CHECK(session_type IN ('trend', 'speaker', 'feedback', 'daily_scan', 'planner')),
     input_query TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'running'
         CHECK(status IN ('running', 'completed', 'failed')),
@@ -135,6 +135,21 @@ CREATE TABLE IF NOT EXISTS daily_suggestions (
     reviewed_by TEXT,
     reviewed_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Planner 과제
+CREATE TABLE IF NOT EXISTS planner_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_type TEXT NOT NULL,
+    priority TEXT NOT NULL DEFAULT 'medium',
+    query TEXT NOT NULL,
+    reason TEXT,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending', 'running', 'completed', 'failed')),
+    session_id INTEGER REFERENCES research_sessions(id),
+    result_summary TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT
 );
 
 -- 참조 컨퍼런스 데이터

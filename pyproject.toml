@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "컨퍼런스 아젠다 리서치 및 프로그램 기획 AI 에이전트"
 requires-python = ">=3.11"
 dependencies = [
-    "claude-agent-sdk>=0.1.44",
     "anthropic>=0.40.0",
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
