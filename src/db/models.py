@@ -111,6 +111,11 @@ class SpeakerUpdate(BaseModel):
     track_id: int | None = None
     team_notes: str | None = None
     overall_score: float | None = Field(None, ge=0.0, le=1.0)
+    estimated_fee: float | None = None
+    risk_level: str | None = Field(None, pattern=r"^(low|medium|high)$")
+    assigned_to: str | None = None
+    travel_required: int | None = None
+    last_contacted_at: str | None = None
 
 
 class Speaker(SpeakerCreate):
@@ -184,3 +189,124 @@ class DailySuggestion(DailySuggestionCreate):
     reviewed_by: str | None = None
     reviewed_at: str | None = None
     created_at: str
+
+
+# === Agenda Sessions (세션/아젠다) ===
+
+
+class AgendaSessionCreate(BaseModel):
+    title: str
+    day: int = Field(default=1, ge=1, le=2)
+    track_id: int | None = None
+    start_time: str  # "09:00"
+    end_time: str    # "09:45"
+    session_type: str = Field(
+        default="presentation",
+        pattern=r"^(keynote|panel|presentation|workshop|break|networking)$",
+    )
+    speaker_id: int | None = None
+    second_speaker_id: int | None = None
+    moderator_id: int | None = None
+    description: str | None = None
+    notes: str | None = None
+    status: str = "draft"
+    sort_order: int = 0
+
+
+class AgendaSessionUpdate(BaseModel):
+    title: str | None = None
+    day: int | None = Field(None, ge=1, le=2)
+    track_id: int | None = None
+    start_time: str | None = None
+    end_time: str | None = None
+    session_type: str | None = None
+    speaker_id: int | None = None
+    second_speaker_id: int | None = None
+    moderator_id: int | None = None
+    description: str | None = None
+    notes: str | None = None
+    status: str | None = Field(
+        None, pattern=r"^(draft|tentative|confirmed|cancelled)$"
+    )
+
+
+# === Milestones (타임라인) ===
+
+
+class MilestoneCreate(BaseModel):
+    title: str
+    description: str | None = None
+    due_date: str
+    phase: str = Field(
+        default="planning",
+        pattern=r"^(research|planning|outreach|confirmation|production|event)$",
+    )
+    status: str = "pending"
+    owner: str | None = None
+    sort_order: int = 0
+
+
+class MilestoneUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    due_date: str | None = None
+    phase: str | None = None
+    status: str | None = Field(
+        None, pattern=r"^(pending|in_progress|completed|overdue|skipped)$"
+    )
+    owner: str | None = None
+    completed_at: str | None = None
+
+
+# === Budget Items (예산) ===
+
+
+class BudgetItemCreate(BaseModel):
+    category: str = Field(
+        pattern=r"^(speaker_fee|travel|venue|catering|production|marketing|staff|other)$"
+    )
+    description: str
+    estimated_amount: float = 0
+    actual_amount: float | None = None
+    currency: str = "KRW"
+    speaker_id: int | None = None
+    notes: str | None = None
+    status: str = "estimated"
+
+
+class BudgetItemUpdate(BaseModel):
+    category: str | None = None
+    description: str | None = None
+    estimated_amount: float | None = None
+    actual_amount: float | None = None
+    notes: str | None = None
+    status: str | None = Field(
+        None, pattern=r"^(estimated|approved|paid|cancelled)$"
+    )
+
+
+# === Speaker Contacts (연락 이력) ===
+
+
+class SpeakerContactCreate(BaseModel):
+    speaker_id: int
+    contact_type: str = Field(
+        pattern=r"^(email|linkedin|phone|meeting|other)$"
+    )
+    direction: str = "outbound"
+    subject: str | None = None
+    content: str | None = None
+    contacted_by: str | None = None
+    contact_date: str | None = None
+    follow_up_date: str | None = None
+    status: str = "sent"
+
+
+class SpeakerContactUpdate(BaseModel):
+    status: str | None = Field(
+        None,
+        pattern=r"^(draft|sent|replied|no_response|follow_up_needed)$",
+    )
+    content: str | None = None
+    follow_up_date: str | None = None
+    contacted_by: str | None = None

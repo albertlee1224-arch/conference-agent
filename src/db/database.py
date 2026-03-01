@@ -165,6 +165,80 @@ CREATE TABLE IF NOT EXISTS reference_conferences (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- 아젠다 세션 (Session/Agenda Builder)
+CREATE TABLE IF NOT EXISTS agenda_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    day INTEGER NOT NULL DEFAULT 1 CHECK(day IN (1, 2)),
+    track_id INTEGER REFERENCES tracks(id),
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL,
+    session_type TEXT NOT NULL DEFAULT 'presentation'
+        CHECK(session_type IN ('keynote', 'panel', 'presentation', 'workshop', 'break', 'networking')),
+    speaker_id INTEGER REFERENCES speakers(id),
+    second_speaker_id INTEGER REFERENCES speakers(id),
+    moderator_id INTEGER REFERENCES speakers(id),
+    description TEXT,
+    notes TEXT,
+    status TEXT NOT NULL DEFAULT 'draft'
+        CHECK(status IN ('draft', 'tentative', 'confirmed', 'cancelled')),
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 마일스톤 (Timeline/Milestones)
+CREATE TABLE IF NOT EXISTS milestones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    due_date TEXT NOT NULL,
+    phase TEXT NOT NULL DEFAULT 'planning'
+        CHECK(phase IN ('research', 'planning', 'outreach', 'confirmation', 'production', 'event')),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending', 'in_progress', 'completed', 'overdue', 'skipped')),
+    owner TEXT,
+    sort_order INTEGER DEFAULT 0,
+    completed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 예산 항목 (Budget Tracking)
+CREATE TABLE IF NOT EXISTS budget_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL
+        CHECK(category IN ('speaker_fee', 'travel', 'venue', 'catering', 'production', 'marketing', 'staff', 'other')),
+    description TEXT NOT NULL,
+    estimated_amount REAL NOT NULL DEFAULT 0,
+    actual_amount REAL,
+    currency TEXT NOT NULL DEFAULT 'KRW',
+    speaker_id INTEGER REFERENCES speakers(id),
+    notes TEXT,
+    status TEXT NOT NULL DEFAULT 'estimated'
+        CHECK(status IN ('estimated', 'approved', 'paid', 'cancelled')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 연사 연락 이력 (Communication Tracking)
+CREATE TABLE IF NOT EXISTS speaker_contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    speaker_id INTEGER NOT NULL REFERENCES speakers(id),
+    contact_type TEXT NOT NULL
+        CHECK(contact_type IN ('email', 'linkedin', 'phone', 'meeting', 'other')),
+    direction TEXT NOT NULL DEFAULT 'outbound'
+        CHECK(direction IN ('inbound', 'outbound')),
+    subject TEXT,
+    content TEXT,
+    contacted_by TEXT,
+    contact_date TEXT NOT NULL DEFAULT (datetime('now')),
+    follow_up_date TEXT,
+    status TEXT NOT NULL DEFAULT 'sent'
+        CHECK(status IN ('draft', 'sent', 'replied', 'no_response', 'follow_up_needed')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- 인덱스
 CREATE INDEX IF NOT EXISTS idx_speakers_status ON speakers(status);
 CREATE INDEX IF NOT EXISTS idx_speakers_tier ON speakers(tier);
@@ -176,11 +250,28 @@ CREATE INDEX IF NOT EXISTS idx_feedback_target ON feedback(target_type, target_i
 CREATE INDEX IF NOT EXISTS idx_discussions_session ON discussions(session_id);
 CREATE INDEX IF NOT EXISTS idx_suggestions_date ON daily_suggestions(suggestion_date);
 CREATE INDEX IF NOT EXISTS idx_suggestions_status ON daily_suggestions(status);
+CREATE INDEX IF NOT EXISTS idx_agenda_day ON agenda_sessions(day);
+CREATE INDEX IF NOT EXISTS idx_agenda_track ON agenda_sessions(track_id);
+CREATE INDEX IF NOT EXISTS idx_milestones_phase ON milestones(phase);
+CREATE INDEX IF NOT EXISTS idx_milestones_due ON milestones(due_date);
+CREATE INDEX IF NOT EXISTS idx_budget_category ON budget_items(category);
+CREATE INDEX IF NOT EXISTS idx_budget_speaker ON budget_items(speaker_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_speaker ON speaker_contacts(speaker_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_date ON speaker_contacts(contact_date);
 """
+
+# speakers 테이블 마이그레이션용 ALTER 문
+MIGRATION_SQL = [
+    "ALTER TABLE speakers ADD COLUMN estimated_fee REAL",
+    "ALTER TABLE speakers ADD COLUMN risk_level TEXT DEFAULT 'low' CHECK(risk_level IN ('low', 'medium', 'high'))",
+    "ALTER TABLE speakers ADD COLUMN assigned_to TEXT",
+    "ALTER TABLE speakers ADD COLUMN travel_required INTEGER DEFAULT 1",
+    "ALTER TABLE speakers ADD COLUMN last_contacted_at TEXT",
+]
 
 
 async def init_db() -> None:
-    """DB 파일 생성 및 스키마 초기화."""
+    """DB 파일 생성 및 스키마 초기화 + 마이그레이션."""
     db_path = Path(settings.database_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -188,6 +279,12 @@ async def init_db() -> None:
         await db.execute("PRAGMA journal_mode=WAL")
         await db.execute("PRAGMA foreign_keys=ON")
         await db.executescript(SCHEMA_SQL)
+        # 기존 DB에 새 컬럼 추가 (이미 존재하면 무시)
+        for alter_sql in MIGRATION_SQL:
+            try:
+                await db.execute(alter_sql)
+            except Exception:
+                pass  # 컬럼이 이미 존재하면 무시
         await db.commit()
 
 

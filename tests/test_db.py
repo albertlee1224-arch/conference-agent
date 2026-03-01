@@ -8,7 +8,7 @@ import aiosqlite
 os.environ["ANTHROPIC_API_KEY"] = "test-key"
 os.environ["DATABASE_PATH"] = ":memory:"
 
-from src.db.database import SCHEMA_SQL
+from src.db.database import SCHEMA_SQL, MIGRATION_SQL
 from src.db import queries
 
 
@@ -19,6 +19,11 @@ async def db():
     conn.row_factory = aiosqlite.Row
     await conn.execute("PRAGMA foreign_keys=ON")
     await conn.executescript(SCHEMA_SQL)
+    for alter_sql in MIGRATION_SQL:
+        try:
+            await conn.execute(alter_sql)
+        except Exception:
+            pass
     await conn.commit()
     yield conn
     await conn.close()
@@ -250,3 +255,90 @@ async def test_planner_tasks_table(db):
     task = dict(await cursor.fetchone())
     assert task["status"] == "completed"
     assert task["completed_at"] is not None
+
+
+async def test_agenda_sessions_crud(db):
+    """agenda_sessions 테이블 CRUD."""
+    tid = await queries.insert_track(db, name="Test Track")
+    sid = await queries.insert_agenda_session(
+        db, title="Opening Keynote", day=1, start_time="09:00",
+        end_time="09:45", session_type="keynote",
+    )
+    assert sid == 1
+
+    sessions = await queries.list_agenda_sessions(db, day=1)
+    assert len(sessions) == 1
+    assert sessions[0]["title"] == "Opening Keynote"
+
+    await queries.update_agenda_session(db, sid, status="confirmed")
+    updated = await queries.get_agenda_session(db, sid)
+    assert updated["status"] == "confirmed"
+
+    deleted = await queries.delete_agenda_session(db, sid)
+    assert deleted is True
+
+
+async def test_milestones_crud(db):
+    """milestones 테이블 CRUD."""
+    mid = await queries.insert_milestone(
+        db, title="Complete speaker shortlist",
+        due_date="2026-05-01", phase="outreach", owner="Albert",
+    )
+    assert mid == 1
+
+    milestones = await queries.list_milestones(db, phase="outreach")
+    assert len(milestones) == 1
+
+    await queries.update_milestone(db, mid, status="completed")
+    deleted = await queries.delete_milestone(db, mid)
+    assert deleted is True
+
+
+async def test_budget_items_crud(db):
+    """budget_items 테이블 CRUD."""
+    bid = await queries.insert_budget_item(
+        db, category="speaker_fee", description="Keynote speaker fee",
+        estimated_amount=5000000,
+    )
+    assert bid == 1
+
+    items = await queries.list_budget_items(db, category="speaker_fee")
+    assert len(items) == 1
+    assert items[0]["estimated_amount"] == 5000000
+
+    summary = await queries.get_budget_summary(db)
+    assert summary["total_estimated"] == 5000000
+
+    deleted = await queries.delete_budget_item(db, bid)
+    assert deleted is True
+
+
+async def test_speaker_contacts_crud(db):
+    """speaker_contacts 테이블 CRUD."""
+    spid = await queries.insert_speaker(db, name="Test Speaker", organization="Test")
+
+    cid = await queries.insert_speaker_contact(
+        db, speaker_id=spid, contact_type="email",
+        direction="outbound", subject="Invitation to speak",
+        contacted_by="Albert", status="sent",
+        follow_up_date="2026-03-15",
+    )
+    assert cid == 1
+
+    contacts = await queries.list_speaker_contacts(db, speaker_id=spid)
+    assert len(contacts) == 1
+    assert contacts[0]["subject"] == "Invitation to speak"
+
+    await queries.update_speaker_contact(db, cid, status="replied")
+    updated = await queries.list_speaker_contacts(db, speaker_id=spid)
+    assert updated[0]["status"] == "replied"
+
+
+async def test_speaker_risk_level(db):
+    """speakers 테이블 risk_level 컬럼 테스트."""
+    spid = await queries.insert_speaker(
+        db, name="Risk Test", organization="Test",
+    )
+    await queries.update_speaker(db, spid, risk_level="high")
+    speaker = await queries.get_speaker(db, spid)
+    assert speaker["risk_level"] == "high"

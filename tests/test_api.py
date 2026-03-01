@@ -144,6 +144,95 @@ async def test_planner_evaluate_trigger(client: AsyncClient):
     assert r.json()["status"] == "running"
 
 
+async def test_agenda_sessions_crud(client: AsyncClient):
+    # Create
+    r = await client.post("/api/agenda", json={
+        "title": "Opening Keynote",
+        "day": 1,
+        "start_time": "09:00",
+        "end_time": "09:45",
+        "session_type": "keynote",
+    })
+    assert r.status_code == 201
+    session_id = r.json()["id"]
+
+    # List
+    r = await client.get("/api/agenda", params={"day": 1})
+    assert r.status_code == 200
+    assert len(r.json()) >= 1
+
+    # Update
+    r = await client.patch(f"/api/agenda/{session_id}", json={
+        "status": "confirmed",
+    })
+    assert r.status_code == 200
+    assert r.json()["status"] == "confirmed"
+
+    # Delete
+    r = await client.delete(f"/api/agenda/{session_id}")
+    assert r.status_code == 200
+
+
+async def test_milestones_crud(client: AsyncClient):
+    r = await client.post("/api/milestones", json={
+        "title": "Finalize tracks",
+        "due_date": "2026-05-01",
+        "phase": "planning",
+    })
+    assert r.status_code == 201
+    mid = r.json()["id"]
+
+    r = await client.get("/api/milestones")
+    assert r.status_code == 200
+    assert len(r.json()) >= 1
+
+    r = await client.patch(f"/api/milestones/{mid}", json={
+        "status": "completed",
+    })
+    assert r.status_code == 200
+
+
+async def test_budget_crud(client: AsyncClient):
+    r = await client.post("/api/budget", json={
+        "category": "speaker_fee",
+        "description": "Keynote speaker fee",
+        "estimated_amount": 5000000,
+    })
+    assert r.status_code == 201
+
+    r = await client.get("/api/budget")
+    assert r.status_code == 200
+    assert len(r.json()) >= 1
+
+    r = await client.get("/api/budget/summary")
+    assert r.status_code == 200
+    assert r.json()["total_estimated"] >= 5000000
+
+
+async def test_contacts_crud(client: AsyncClient):
+    # Create speaker first
+    r = await client.post("/api/speakers", json={
+        "name": "Contact Test Speaker",
+        "organization": "Test Corp",
+    })
+    speaker_id = r.json()["id"]
+
+    r = await client.post("/api/contacts", json={
+        "speaker_id": speaker_id,
+        "contact_type": "email",
+        "subject": "Invitation",
+        "contacted_by": "Albert",
+    })
+    assert r.status_code == 201
+
+    r = await client.get("/api/contacts", params={"speaker_id": speaker_id})
+    assert r.status_code == 200
+    assert len(r.json()) >= 1
+
+    r = await client.get("/api/contacts/alerts")
+    assert r.status_code == 200
+
+
 async def test_research_sessions(client: AsyncClient):
     # Start trend research (agent won't run in test)
     r = await client.post("/api/research/trends", json={

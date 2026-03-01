@@ -241,6 +241,7 @@ async def update_speaker(
     fields = [
         "status", "tier", "track_id", "team_notes", "overall_score",
         "expertise_score", "name_value_score", "speaking_score", "relevance_score",
+        "estimated_fee", "risk_level", "assigned_to", "travel_required", "last_contacted_at",
     ]
     present = {k: v for k, v in kwargs.items() if k in fields and v is not None}
     if not present:
@@ -443,3 +444,347 @@ async def get_suggestion_stats(
             "dismissed": row[3] or 0,
         }
     return {"total": 0, "pending": 0, "approved": 0, "dismissed": 0}
+
+
+# === Agenda Sessions ===
+
+
+async def insert_agenda_session(db: aiosqlite.Connection, **kwargs: Any) -> int:
+    fields = [
+        "title", "day", "track_id", "start_time", "end_time",
+        "session_type", "speaker_id", "second_speaker_id", "moderator_id",
+        "description", "notes", "status", "sort_order",
+    ]
+    present = {k: v for k, v in kwargs.items() if k in fields and v is not None}
+    cols = ", ".join(present.keys())
+    placeholders = ", ".join(["?"] * len(present))
+
+    cursor = await db.execute(
+        f"INSERT INTO agenda_sessions ({cols}) VALUES ({placeholders})",
+        list(present.values()),
+    )
+    await db.commit()
+    return cursor.lastrowid
+
+
+async def list_agenda_sessions(
+    db: aiosqlite.Connection,
+    day: int | None = None,
+    track_id: int | None = None,
+) -> list[dict]:
+    query = "SELECT * FROM agenda_sessions WHERE 1=1"
+    params: list[Any] = []
+
+    if day is not None:
+        query += " AND day = ?"
+        params.append(day)
+    if track_id is not None:
+        query += " AND track_id = ?"
+        params.append(track_id)
+
+    query += " ORDER BY day, start_time, sort_order"
+    cursor = await db.execute(query, params)
+    return [dict(row) for row in await cursor.fetchall()]
+
+
+async def get_agenda_session(db: aiosqlite.Connection, session_id: int) -> dict | None:
+    cursor = await db.execute(
+        "SELECT * FROM agenda_sessions WHERE id = ?", (session_id,)
+    )
+    row = await cursor.fetchone()
+    return dict(row) if row else None
+
+
+async def update_agenda_session(
+    db: aiosqlite.Connection, session_id: int, **kwargs: Any
+) -> None:
+    fields = [
+        "title", "day", "track_id", "start_time", "end_time",
+        "session_type", "speaker_id", "second_speaker_id", "moderator_id",
+        "description", "notes", "status", "sort_order",
+    ]
+    present = {k: v for k, v in kwargs.items() if k in fields and v is not None}
+    if not present:
+        return
+
+    set_clause = ", ".join(f"{k} = ?" for k in present)
+    values = list(present.values()) + [session_id]
+
+    await db.execute(
+        f"UPDATE agenda_sessions SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
+        values,
+    )
+    await db.commit()
+
+
+async def delete_agenda_session(db: aiosqlite.Connection, session_id: int) -> bool:
+    cursor = await db.execute(
+        "DELETE FROM agenda_sessions WHERE id = ?", (session_id,)
+    )
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+# === Milestones ===
+
+
+async def insert_milestone(db: aiosqlite.Connection, **kwargs: Any) -> int:
+    fields = [
+        "title", "description", "due_date", "phase",
+        "status", "owner", "sort_order",
+    ]
+    present = {k: v for k, v in kwargs.items() if k in fields and v is not None}
+    cols = ", ".join(present.keys())
+    placeholders = ", ".join(["?"] * len(present))
+
+    cursor = await db.execute(
+        f"INSERT INTO milestones ({cols}) VALUES ({placeholders})",
+        list(present.values()),
+    )
+    await db.commit()
+    return cursor.lastrowid
+
+
+async def list_milestones(
+    db: aiosqlite.Connection,
+    phase: str | None = None,
+    status: str | None = None,
+) -> list[dict]:
+    query = "SELECT * FROM milestones WHERE 1=1"
+    params: list[Any] = []
+
+    if phase:
+        query += " AND phase = ?"
+        params.append(phase)
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+
+    query += " ORDER BY due_date, sort_order"
+    cursor = await db.execute(query, params)
+    return [dict(row) for row in await cursor.fetchall()]
+
+
+async def update_milestone(
+    db: aiosqlite.Connection, milestone_id: int, **kwargs: Any
+) -> None:
+    fields = [
+        "title", "description", "due_date", "phase",
+        "status", "owner", "sort_order", "completed_at",
+    ]
+    present = {k: v for k, v in kwargs.items() if k in fields and v is not None}
+    if not present:
+        return
+
+    set_clause = ", ".join(f"{k} = ?" for k in present)
+    values = list(present.values()) + [milestone_id]
+
+    await db.execute(
+        f"UPDATE milestones SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
+        values,
+    )
+    await db.commit()
+
+
+async def delete_milestone(db: aiosqlite.Connection, milestone_id: int) -> bool:
+    cursor = await db.execute(
+        "DELETE FROM milestones WHERE id = ?", (milestone_id,)
+    )
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+# === Budget Items ===
+
+
+async def insert_budget_item(db: aiosqlite.Connection, **kwargs: Any) -> int:
+    fields = [
+        "category", "description", "estimated_amount", "actual_amount",
+        "currency", "speaker_id", "notes", "status",
+    ]
+    present = {k: v for k, v in kwargs.items() if k in fields and v is not None}
+    cols = ", ".join(present.keys())
+    placeholders = ", ".join(["?"] * len(present))
+
+    cursor = await db.execute(
+        f"INSERT INTO budget_items ({cols}) VALUES ({placeholders})",
+        list(present.values()),
+    )
+    await db.commit()
+    return cursor.lastrowid
+
+
+async def list_budget_items(
+    db: aiosqlite.Connection,
+    category: str | None = None,
+    status: str | None = None,
+) -> list[dict]:
+    query = "SELECT * FROM budget_items WHERE 1=1"
+    params: list[Any] = []
+
+    if category:
+        query += " AND category = ?"
+        params.append(category)
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+
+    query += " ORDER BY created_at DESC"
+    cursor = await db.execute(query, params)
+    return [dict(row) for row in await cursor.fetchall()]
+
+
+async def get_budget_summary(db: aiosqlite.Connection) -> dict:
+    cursor = await db.execute(
+        """SELECT
+               category,
+               SUM(estimated_amount) as estimated,
+               SUM(COALESCE(actual_amount, 0)) as actual,
+               COUNT(*) as count
+           FROM budget_items
+           GROUP BY category"""
+    )
+    rows = [dict(row) for row in await cursor.fetchall()]
+
+    total_est = sum(r["estimated"] or 0 for r in rows)
+    total_act = sum(r["actual"] or 0 for r in rows)
+    return {
+        "by_category": rows,
+        "total_estimated": total_est,
+        "total_actual": total_act,
+        "utilization": total_act / total_est if total_est > 0 else 0,
+    }
+
+
+async def update_budget_item(
+    db: aiosqlite.Connection, item_id: int, **kwargs: Any
+) -> None:
+    fields = [
+        "category", "description", "estimated_amount", "actual_amount",
+        "currency", "speaker_id", "notes", "status",
+    ]
+    present = {k: v for k, v in kwargs.items() if k in fields and v is not None}
+    if not present:
+        return
+
+    set_clause = ", ".join(f"{k} = ?" for k in present)
+    values = list(present.values()) + [item_id]
+
+    await db.execute(
+        f"UPDATE budget_items SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
+        values,
+    )
+    await db.commit()
+
+
+async def delete_budget_item(db: aiosqlite.Connection, item_id: int) -> bool:
+    cursor = await db.execute(
+        "DELETE FROM budget_items WHERE id = ?", (item_id,)
+    )
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+# === Speaker Contacts ===
+
+
+async def insert_speaker_contact(db: aiosqlite.Connection, **kwargs: Any) -> int:
+    fields = [
+        "speaker_id", "contact_type", "direction", "subject",
+        "content", "contacted_by", "contact_date", "follow_up_date", "status",
+    ]
+    present = {k: v for k, v in kwargs.items() if k in fields and v is not None}
+    cols = ", ".join(present.keys())
+    placeholders = ", ".join(["?"] * len(present))
+
+    cursor = await db.execute(
+        f"INSERT INTO speaker_contacts ({cols}) VALUES ({placeholders})",
+        list(present.values()),
+    )
+    await db.commit()
+    return cursor.lastrowid
+
+
+async def list_speaker_contacts(
+    db: aiosqlite.Connection,
+    speaker_id: int | None = None,
+    status: str | None = None,
+) -> list[dict]:
+    query = "SELECT * FROM speaker_contacts WHERE 1=1"
+    params: list[Any] = []
+
+    if speaker_id is not None:
+        query += " AND speaker_id = ?"
+        params.append(speaker_id)
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+
+    query += " ORDER BY contact_date DESC"
+    cursor = await db.execute(query, params)
+    return [dict(row) for row in await cursor.fetchall()]
+
+
+async def update_speaker_contact(
+    db: aiosqlite.Connection, contact_id: int, **kwargs: Any
+) -> None:
+    fields = ["status", "content", "follow_up_date", "contacted_by"]
+    present = {k: v for k, v in kwargs.items() if k in fields and v is not None}
+    if not present:
+        return
+
+    set_clause = ", ".join(f"{k} = ?" for k in present)
+    values = list(present.values()) + [contact_id]
+
+    await db.execute(
+        f"UPDATE speaker_contacts SET {set_clause} WHERE id = ?",
+        values,
+    )
+    await db.commit()
+
+
+async def get_follow_up_alerts(db: aiosqlite.Connection) -> list[dict]:
+    cursor = await db.execute(
+        """SELECT sc.*, s.name as speaker_name, s.organization as speaker_org
+           FROM speaker_contacts sc
+           JOIN speakers s ON sc.speaker_id = s.id
+           WHERE sc.status IN ('sent', 'no_response', 'follow_up_needed')
+             AND sc.follow_up_date <= date('now')
+           ORDER BY sc.follow_up_date"""
+    )
+    return [dict(row) for row in await cursor.fetchall()]
+
+
+# === Planner Tasks ===
+
+
+async def insert_planner_task(db: aiosqlite.Connection, **kwargs: Any) -> int:
+    fields = [
+        "task_type", "priority", "query", "reason", "status", "session_id",
+    ]
+    present = {k: v for k, v in kwargs.items() if k in fields and v is not None}
+    cols = ", ".join(present.keys())
+    placeholders = ", ".join(["?"] * len(present))
+
+    cursor = await db.execute(
+        f"INSERT INTO planner_tasks ({cols}) VALUES ({placeholders})",
+        list(present.values()),
+    )
+    await db.commit()
+    return cursor.lastrowid
+
+
+async def list_planner_tasks(
+    db: aiosqlite.Connection,
+    status: str | None = None,
+) -> list[dict]:
+    query = "SELECT * FROM planner_tasks WHERE 1=1"
+    params: list[Any] = []
+
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+
+    query += " ORDER BY created_at DESC"
+    cursor = await db.execute(query, params)
+    return [dict(row) for row in await cursor.fetchall()]

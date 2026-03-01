@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.config import settings
 from src.db.database import init_db
 from src.api import research, speakers, trends, tracks, feedback, suggestions, planner
+from src.api import agenda, milestones, budget, contacts
 from src.scheduler import start_scheduler, stop_scheduler
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,10 @@ app.include_router(tracks.router, prefix="/api/tracks", tags=["tracks"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["feedback"])
 app.include_router(suggestions.router, prefix="/api/suggestions", tags=["suggestions"])
 app.include_router(planner.router, prefix="/api/planner", tags=["planner"])
+app.include_router(agenda.router, prefix="/api/agenda", tags=["agenda"])
+app.include_router(milestones.router, prefix="/api/milestones", tags=["milestones"])
+app.include_router(budget.router, prefix="/api/budget", tags=["budget"])
+app.include_router(contacts.router, prefix="/api/contacts", tags=["contacts"])
 
 
 @app.get("/api/health")
